@@ -45,6 +45,10 @@ fn main() {
     let program = glium::Program::from_source(&display, &vshader, &fshader, None).unwrap();
 
     let timer = stopwatch::Stopwatch::start_new();
+    let initial_time =
+        6.0 // 06:00, in minutes
+        * 60.0 // Seconds
+        ;
 
     let mut closed = false;
     let mut mouse = [0.0; 4];
@@ -55,7 +59,7 @@ fn main() {
 
         let res = target.get_dimensions();
         let res: [f32; 2] = [res.0 as f32, res.1 as f32];
-        target.draw(&vbuff, &indices, &program, &uniform! { iTime: timer.elapsed_ms() as f32 / 1000.0, iResolution: res, iMouse: mouse }, &Default::default()).unwrap();
+        target.draw(&vbuff, &indices, &program, &uniform! { iTime: initial_time + timer.elapsed_ms() as f32 / 1000.0, iResolution: res, iMouse: mouse }, &Default::default()).unwrap();
 
         target.finish().unwrap();
 
