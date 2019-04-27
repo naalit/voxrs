@@ -4,7 +4,10 @@
 
 uniform float iTime;
 uniform vec2 iResolution;
-uniform vec4 iMouse;
+uniform vec2 iMouse;
+uniform vec3 cameraPos;
+uniform vec3 cameraDir;
+uniform vec3 cameraUp;
 
 in vec3 vertColor;
 
@@ -527,23 +530,26 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     vec2 uv = fragCoord / iResolution.xy;
     uv *= 2.;
     uv -= 1.;
-    uv.x *= iResolution.x / iResolution.y;
+    uv.y *= iResolution.y / iResolution.x;
 
+    /*
     #if CAMERA_MOVEMENT
     float r = iTime;
     #else
     float r = 12.*iMouse.x/iResolution.x;
     #endif
     vec3 ro = vec3(2.*sin(0.5*r),1.5-3.0*iMouse.y/iResolution.y,1.6*cos(0.5*r));
+    */
+    vec3 ro = cameraPos;
     //ro = vec3(0.);
-    vec3 lookAt = vec3(0.);//1.,sin(iTime)*1.,cos(iTime)*0.8);
-    vec3 cameraDir = normalize(lookAt-ro);//vec3(0.,-1.,1.));
-    vec3 up = vec3(0.,1.,0.);
-    vec3 left = normalize(cross(cameraDir, up)); // Might be right
+    //vec3 lookAt = vec3(0.);//1.,sin(iTime)*1.,cos(iTime)*0.8);
+    //vec3 cameraDir = normalize(lookAt-ro);//vec3(0.,-1.,1.));
+    vec3 up = cameraUp; //vec3(0.,1.,0.);
+    vec3 right = normalize(cross(cameraDir, cameraUp)); // Might be right
     vec3 rd = cameraDir;
     float FOV = 0.5; // Not actual FOV, just a multiplier
     rd += FOV * up * uv.y;
-    rd += FOV * left * uv.x;
+    rd += FOV * right * uv.x;
     rd = normalize(rd);
 
     vec2 t;
