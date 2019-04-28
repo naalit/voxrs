@@ -1,4 +1,4 @@
-#version 330 core
+#version 450 core
 
 // This is a Shadertoy emulator, it works pretty well.
 
@@ -8,6 +8,10 @@ uniform vec2 iMouse;
 uniform vec3 cameraPos;
 uniform vec3 cameraDir;
 uniform vec3 cameraUp;
+
+buffer octree {
+    dvec3 nodes[];
+};
 
 in vec3 vertColor;
 
@@ -241,7 +245,7 @@ bool trace(in vec3 ro, in vec3 rd, out vec2 t, out vec3 pos, out int iter, out f
 
 
 // How fast time goes, in days/second. So 0.00001157407 is real time, 0.00069 is 1 hour per minute
-#define SUN_SPEED 0.00069
+#define SUN_SPEED 0.0069
 // 1.0 is default, goes both ways
 #define SUN_SIZE 1.0
 // Makes the sun & glow dissapear below the horizon
@@ -481,16 +485,16 @@ vec3 shade(vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos) {
     vec3 n = normalize(pos);
     // And this isn't accurate even for a sphere, but it ensures the edges are visible.
     n = faceforward(n,-rd,-n);
-
+    vec3 p = pos;
     #else
 
     // The largest component of the vector from the center to the point on the surface,
     //	is necessarily the normal.
-    vec3 n = (ro+rd*t.x - pos);
+    vec3 p = ro+rd*t.x;
+    vec3 n = (p - pos);
     n = sign(n) * (abs(n.x) > abs(n.y) ? // Not y
         (abs(n.x) > abs(n.z) ? vec3(1., 0., 0.) : vec3(0., 0., 1.)) :
     	(abs(n.y) > abs(n.z) ? vec3(0., 1., 0.) : vec3(0., 0., 1.)));
-
     #endif
 
     Material mat = Material(normalize(abs(n)+abs(pos)+vec3(0.5)), 0.9); // Color from normal+position of voxel
@@ -518,9 +522,14 @@ vec3 shade(vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos) {
     }
     return acc / float(j);
 	#else
-    vec3 lightDir = major_dir();///*normalize(vec3(0.2,1.,0.1));/*/reflect(rd,n);
-    vec3 c = sky(pos,lightDir);
-    return c*brdf(-lightDir, -rd, n, mat, (float(iter)/float(MAX_ITER)));
+    vec3 lightDir = major_dir();//reflect(rd,n);
+    vec3 c = sky(p,lightDir);
+    vec2 t_;
+    vec3 pos_;
+    int iter_ = MAX_ITER;
+    float size_;
+    bool shadow = false;//trace(p+1.1*n*(root_size/exp2(levels)), vec3(0.0,1.0,0.0), t_, pos_, iter_, size_);
+    return (shadow ? vec3(0.3) : vec3(float(iter_)/float(MAX_ITER))) * c*brdf(-lightDir, -rd, n, mat, (float(iter)/float(MAX_ITER)));
     #endif
 }
 

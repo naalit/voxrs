@@ -5,6 +5,8 @@ extern crate glm;
 
 use glm::*;
 
+mod octree;
+
 #[derive(Copy, Clone)]
 struct Vertex {
     pos: [f32; 2],
@@ -58,6 +60,19 @@ fn main() {
     let mut closed = false;
     let mut mouse = vec2(0.0,0.0);
     let mut m_down = false;
+    let octree = vec![
+        octree::Node {
+            leaf: [false; 8],
+            pointer: [0; 8],
+           }
+    ];
+    let max_length = 1;
+    let mut octree_buffer: glium::uniforms::UniformBuffer<[[f64;3]]> =
+        glium::uniforms::UniformBuffer::empty_unsized_persistent(&display, std::mem::size_of::<[f64;3]>() * max_length).unwrap();
+    {
+        let mut octree_pointer = octree_buffer.map_write();
+        octree_pointer.set(0, octree[0].uniform());
+    }//octree_buffer.write(&octree::to_uniform(octree));
     while !closed {
         let mut target = display.draw();
         target.clear_color(0.0, 0.0, 1.0, 1.0);
@@ -80,6 +95,7 @@ fn main() {
             cameraPos: *camera_pos.as_array(),
             cameraDir: *camera_dir.as_array(),
             cameraUp: *camera_up.as_array(),
+            octree: &octree_buffer,
          }, &Default::default()).unwrap();
 
         target.finish().unwrap();
