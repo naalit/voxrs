@@ -28,6 +28,80 @@ void main() {
 
 // -------------------------------------------
 
+
+struct Node {
+    bool[8] leaf;
+    uint[8] pointer;
+};
+
+// NOTE: this has undergone heavy testing, so don't change
+Node decode(dvec3 source) {
+    bool[8] leaf;
+    // Reverse order - least significant, most significant
+    uvec2 one = unpackDouble2x32(source.x);
+    for (int i = 0; i < 8; i++) {
+        leaf[i] = one.y >= (1 << (31-i));
+        one.y = one.y % (1 << (31-i));
+    }
+    uint[8] pointer;
+    // Reverse order again
+    uvec2 two = unpackDouble2x32(source.y);
+    uvec2 three = unpackDouble2x32(source.z);
+
+    pointer[0] = bitfieldExtract(two.y, 16, 16); // Most significant
+    pointer[1] = bitfieldExtract(two.y, 0, 16); // Least significant
+    pointer[2] = bitfieldExtract(two.x, 16, 16); // Most significant
+    pointer[3] = bitfieldExtract(two.x, 0, 16); // Least significant
+
+    pointer[4] = bitfieldExtract(three.y, 16, 16); // Most significant
+    pointer[5] = bitfieldExtract(three.y, 0, 16); // Least significant
+    pointer[6] = bitfieldExtract(three.x, 16, 16); // Most significant
+    pointer[7] = bitfieldExtract(three.x, 0, 16); // Least significant
+
+    pointer[0] |= bitfieldExtract(one.y, 25-8, 7) << 16; // bits 0-7 are used up
+    pointer[1] |= bitfieldExtract(one.y, 25-15, 7) << 16;
+    pointer[2] |= bitfieldExtract(one.y, 25-22, 7) << 16;
+
+    pointer[3] |= bitfieldExtract(one.y, 29-29, 3) << 20; // 16+4=20; 29+3=32
+    pointer[3] |= bitfieldExtract(one.x, 28-0, 4) << 16;
+
+    pointer[4] |= bitfieldExtract(one.x, 25-4, 7) << 16;
+    pointer[5] |= bitfieldExtract(one.x, 25-11, 7) << 16;
+    pointer[6] |= bitfieldExtract(one.x, 25-18, 7) << 16;
+    pointer[7] |= bitfieldExtract(one.x, 25-25, 7) << 16; // 25 + 7 = 32
+
+    return Node(leaf, pointer);
+}
+
+// The idx has bits `x,y,z`, from most to least significant
+uint uidx(vec3 idx) {
+    uint ret = 0u;
+    ret |= uint(idx.x > 0.0) << 2;
+    ret |= uint(idx.y > 0.0) << 1;
+    ret |= uint(idx.z > 0.0);
+    return ret;
+}
+
+bool leaf(Node parent, uint idx) {
+    return parent.leaf[idx];
+}
+
+bool leaf(Node parent, vec3 idx) {
+    return parent.leaf[uidx(idx)];
+}
+
+Node voxel(Node parent, uint idx) {
+    return decode(nodes[parent.pointer[idx]]);
+}
+
+Node voxel(Node parent, vec3 idx) {
+    return decode(nodes[parent.pointer[uidx(idx)]]);
+}
+
+
+// -------------------------------------------
+
+
 // Sample the envmap in multiple places and pick the highest valued one. Not really physically accurate if not 1
 #define SKY_SAMPLES 1
 // How many directions to sample the lighting & BRDF at

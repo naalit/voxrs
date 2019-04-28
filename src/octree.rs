@@ -1,5 +1,6 @@
 use glm::*;
 
+/// The indices for each of these arrays have bits corresponding to children on the axis `x,y,z`, from most to least significant
 pub struct Node {
     pub leaf: [bool; 8],
     pub pointer: [usize; 8], // each is actually 23-bit
@@ -27,6 +28,7 @@ impl Node {
     /// ```
     /// Each 7 pointer bits from the `x` value are left-shifted by 16 and then `|`-ed on
     pub fn uniform(&self) -> [f64; 3] {
+        // NOTE: this has undergone heavy testing, so don't change
         let pieces: Vec<(usize, usize)> = self.pointer.iter().map(|x| bits(*x,16)).collect();
         let leaf = self.leaf;
         let mut one =
@@ -42,12 +44,12 @@ impl Node {
             one |= (*x as u64) << (56 - 7*(i+1)); // Enumerate starts at 0, but we want to start at 56-7, so i+1
         }
         let two: u64 =
-            (pieces[0].0 as u64) << 56 |
+            (pieces[0].0 as u64) << 48 |
             (pieces[1].0 as u64) << 32 |
             (pieces[2].0 as u64) << 16 |
             (pieces[3].0 as u64);
         let three: u64 =
-            (pieces[4].0 as u64) << 56 |
+            (pieces[4].0 as u64) << 48 |
             (pieces[5].0 as u64) << 32 |
             (pieces[6].0 as u64) << 16 |
             (pieces[7].0 as u64);

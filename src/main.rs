@@ -72,7 +72,7 @@ fn main() {
     {
         let mut octree_pointer = octree_buffer.map_write();
         octree_pointer.set(0, octree[0].uniform());
-    }//octree_buffer.write(&octree::to_uniform(octree));
+    } // octree_buffer.write(&octree::to_uniform(octree));
     while !closed {
         let mut target = display.draw();
         target.clear_color(0.0, 0.0, 1.0, 1.0);
