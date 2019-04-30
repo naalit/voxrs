@@ -1,4 +1,4 @@
-#version 450 core
+#version 450
 
 // This is a Shadertoy emulator, it works pretty well.
 
@@ -9,11 +9,15 @@ uniform vec3 cameraPos;
 uniform vec3 cameraDir;
 uniform vec3 cameraUp;
 
+// We'll need to change the max later
+#define MAX_LEVELS 8
+uniform int levels;
+
 buffer octree {
-    dvec3 nodes[];
+    dvec4 nodes[];
 };
 
-in vec3 vertColor;
+// in vec3 vertColor;
 
 out vec4 fragColor;
 
@@ -34,8 +38,9 @@ struct Node {
     uint[8] pointer;
 };
 
-// NOTE: this has undergone heavy testing, so don't change
-Node decode(dvec3 source) {
+// The equivalent function in Rust follows this one closely to allow for testing of this one,
+//  so only update both at once
+Node decode(dvec4 source) {
     bool[8] leaf;
     // Reverse order - least significant, most significant
     uvec2 one = unpackDouble2x32(source.x);
@@ -111,15 +116,15 @@ Node voxel(Node parent, vec3 idx) {
 // Set this to 1 for a liquid-like animation
 #define ANIMATE 0
 // Try turning that on and this off to see the animation more clearly
-#define CAMERA_MOVEMENT 0
+// #define CAMERA_MOVEMENT 0
 
 // Enable this to see the exact raymarched model
-//#define MARCH
+// #define MARCH
 
 // The size of the scene. Don't change unless you change the distance function
 const float root_size = 4.;
 // The resolution, in octree levels. Feel free to play around with this one
-const int levels = 9;
+// const int levels = 9;
 
 // The maximum iterations for voxel traversal. Increase if you see raymarching-like
 //	hole artifacts at edges, decrease if it's too slow
@@ -198,10 +203,11 @@ vec2 isect(in vec3 pos, in float size, in vec3 ro, in vec3 rd, out vec3 tmid, ou
 }
 
 struct ST {
+    Node parent;
     vec3 pos;
 	int scale; // size = root_size * exp2(float(-scale));
     vec3 idx;
-} stack[levels];
+} stack[MAX_LEVELS];
 
 int stack_ptr = 0; // Next open index
 void stack_reset() { stack_ptr = 0; }
@@ -226,6 +232,7 @@ bool trace(in vec3 ro, in vec3 rd, out vec2 t, out vec3 pos, out int iter, out f
     vec3 tmax;
     bool can_push = true;
     float d;
+    Node parent = decode(nodes[0]);
     t = isect(pos, size, ro, rd, tmid, tmax);
     //if (!(t.y >= t.x && t.y >= 0.0)) { return false; }
 
@@ -247,19 +254,29 @@ bool trace(in vec3 ro, in vec3 rd, out vec2 t, out vec3 pos, out int iter, out f
     	/*if (t.x > t.y || t.y < 0.0)
             return false; // We missed it
         */
-        d = dist(pos);
+        // d = dist(pos);
 
-        if (d < size*0.5) { // Voxel exists
-            //return true;
-            if (scale >= levels)// || d < -size)
-                return true; // Filled leaf
+        // if (d < size*0.5) { // Voxel exists
+
+        bool leaf = leaf(parent, idx);
+        uint pointer =  parent.pointer[uidx(idx)];
+
+        // We've hit a nonempty leaf voxel, stop now
+        if (leaf && pointer != 0)
+            return true;
+
+        if (!leaf) {
+            // We're not going farther, we've hit the maximum level.
+            // Really, this should never happen with a well constructed octree...
+            // if (scale >= levels)
+            //     return true;
 
             if (can_push) {
-
                 //-- PUSH --//
 
-                stack_push(ST(pos, scale, idx)); // TODO don't add this if we would leave
-                								// the parent voxel as well (h value)
+                stack_push(ST(parent, pos, scale, idx)); // TODO don't add this if we would leave the parent voxel as well (h value)
+
+                parent = voxel(parent, idx);
                 scale++;
                 size *= 0.5;
                 idx = mix(-sign(rd), sign(rd), lessThanEqual(tmid, vec3(t.x)));
@@ -277,13 +294,14 @@ bool trace(in vec3 ro, in vec3 rd, out vec2 t, out vec3 pos, out int iter, out f
 
         // If idx hasn't changed, we're at the last child in this voxel
         if (idx == old) {
-            //return true;
+            //return false;
 
             //-- POP --//
 
             if (stack_empty() || scale == 0) return false; // We've investigated every voxel on the ray
 
             ST s = stack_pop();
+            parent = s.parent;
             pos = s.pos;
             scale = s.scale;
             size = root_size * exp2(float(-scale));
@@ -610,6 +628,22 @@ vec3 shade(vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos) {
 
 void mainImage( out vec4 fragColor, in vec2 fragCoord )
 {
+    /*Node a = decode(nodes[0]);
+    bool x = a == Node(
+        bool[](true, true, false, true, true, true, true, true),
+        uint[](0, 0, 1, 0, 1, 0, 0, 0)
+    );
+    int i = 3;*/
+    /*Node b = decode(nodes[1]);
+    //bool x = true;
+    bool x = b == Node(
+        bool[](true,true,true,true,true,true,true,true),
+        uint[](0, 0, 0, 1, 0, 0, 0, 0)
+    );
+
+    fragColor = vec4(vec3(x), 1);
+    return;*/
+
     vec2 uv = fragCoord / iResolution.xy;
     uv *= 2.;
     uv -= 1.;

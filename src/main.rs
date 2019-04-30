@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate glium;
-extern crate stopwatch;
 extern crate glm;
+extern crate stopwatch;
 
 use glm::*;
 
@@ -10,12 +10,11 @@ mod octree;
 #[derive(Copy, Clone)]
 struct Vertex {
     pos: [f32; 2],
-    col: [f32; 3],
 }
-implement_vertex!(Vertex, pos, col);
+implement_vertex!(Vertex, pos);
 
-fn vert(x: f32, y: f32, col: [f32; 3]) -> Vertex {
-    Vertex { pos: [x, y], col }
+fn vert(x: f32, y: f32) -> Vertex {
+    Vertex { pos: [x, y] }
 }
 
 fn main() {
@@ -31,11 +30,7 @@ fn main() {
         .window()
         .set_cursor(glutin::MouseCursor::Crosshair); //.unwrap();
 
-    let vertexes = vec![
-        vert(-3.0, -3.0, [0.0, 0.0, 1.0]),
-        vert(3.0, -3.0, [1.0, 0.0, 0.0]),
-        vert(0.0, 3.0, [0.0, 1.0, 0.0]),
-    ];
+    let vertexes = vec![vert(-3.0, -3.0), vert(3.0, -3.0), vert(0.0, 3.0)];
     let vbuff = glium::VertexBuffer::new(&display, &vertexes).unwrap();
     let indices = glium::index::NoIndices(glium::index::PrimitiveType::TriangleStrip);
 
@@ -58,21 +53,33 @@ fn main() {
         ;
 
     let mut closed = false;
-    let mut mouse = vec2(0.0,0.0);
+    let mut mouse = vec2(0.0, 0.0);
     let mut m_down = false;
     let octree = vec![
         octree::Node {
-            leaf: [false; 8],
-            pointer: [0; 8],
-           }
+            leaf: [true, true, false, true, true, true, true, true],
+            pointer: [0, 0, 1, 0, 1, 0, 0, 0],
+        },
+        octree::Node {
+            leaf: [true; 8],
+            pointer: [0, 0, 0, 1, 0, 0, 0, 0],
+        },
     ];
-    let max_length = 1;
-    let mut octree_buffer: glium::uniforms::UniformBuffer<[[f64;3]]> =
-        glium::uniforms::UniformBuffer::empty_unsized_persistent(&display, std::mem::size_of::<[f64;3]>() * max_length).unwrap();
-    {
+    let max_length = 2;
+    let mut octree_buffer: glium::buffer::Buffer<[[f64; 4]]> =
+        glium::buffer::Buffer::empty_unsized(//empty_unsized_persistent(
+            &display,
+            glium::buffer::BufferType::ShaderStorageBuffer,
+            std::mem::size_of::<[f64; 4]>() * max_length,
+            glium::buffer::BufferMode::Persistent,
+        )
+        .unwrap();
+    /*{
         let mut octree_pointer = octree_buffer.map_write();
         octree_pointer.set(0, octree[0].uniform());
-    } // octree_buffer.write(&octree::to_uniform(octree));
+        octree_pointer.set(1, octree[1].uniform());
+    }*/
+    octree_buffer.write(&octree::to_uniform(octree));
     while !closed {
         let mut target = display.draw();
         target.clear_color(0.0, 0.0, 1.0, 1.0);
@@ -81,22 +88,31 @@ fn main() {
         let res = vec2(res.0 as f32, res.1 as f32);
         let r = 12. * mouse.x / res.x;
         let camera_pos = vec3(
-            3.0 * (0.5 * r).sin(),
-            1.5 - 3.0 * mouse.y / res.y,
-            3.0 * (0.5 * r).cos(),
+            5.0 * (0.5 * r).sin(),
+            5.5 - 6.0 * mouse.y / res.y,
+            5.0 * (0.5 * r).cos(),
         );
-        let look_at = vec3(0.0,0.0,0.0);
+        let look_at = vec3(0.0, 0.0, 0.0);
         let camera_dir = normalize(look_at - camera_pos);
-        let camera_up = vec3(0.0,1.0,0.0);
-        target.draw(&vbuff, &indices, &program, &uniform! {
-            iTime: initial_time + timer.elapsed_ms() as f32 / 1000.0,
-            iResolution: *res.as_array(),
-            iMouse: *mouse.as_array(),
-            cameraPos: *camera_pos.as_array(),
-            cameraDir: *camera_dir.as_array(),
-            cameraUp: *camera_up.as_array(),
-            octree: &octree_buffer,
-         }, &Default::default()).unwrap();
+        let camera_up = vec3(0.0, 1.0, 0.0);
+        target
+            .draw(
+                &vbuff,
+                &indices,
+                &program,
+                &uniform! {
+                   iTime: initial_time + timer.elapsed_ms() as f32 / 1000.0,
+                   iResolution: *res.as_array(),
+                   iMouse: *mouse.as_array(),
+                   cameraPos: *camera_pos.as_array(),
+                   cameraDir: *camera_dir.as_array(),
+                   cameraUp: *camera_up.as_array(),
+                   octree: &octree_buffer,
+                   levels: 2,
+                },
+                &Default::default(),
+            )
+            .unwrap();
 
         target.finish().unwrap();
 
