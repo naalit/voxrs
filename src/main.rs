@@ -6,6 +6,7 @@ extern crate stopwatch;
 use glm::*;
 
 mod octree;
+mod terrain;
 
 #[derive(Copy, Clone)]
 struct Vertex {
@@ -55,6 +56,7 @@ fn main() {
     let mut closed = false;
     let mut mouse = vec2(0.0, 0.0);
     let mut m_down = false;
+    /*
     let octree = vec![
         octree::Node {
             leaf: [true, true, false, true, true, true, true, true],
@@ -65,7 +67,9 @@ fn main() {
             pointer: [0, 0, 0, 1, 0, 0, 0, 0],
         },
     ];
-    let max_length = 2;
+    let max_length = 2;*/
+    let octree = terrain::generate();
+    let max_length = octree.len();
     let mut octree_buffer: glium::buffer::Buffer<[[f64; 4]]> =
         glium::buffer::Buffer::empty_unsized(//empty_unsized_persistent(
             &display,

@@ -109,6 +109,14 @@ impl Node {
         ret
     }
 
+    /// Converts between a 3D vector representing the child slot, and the actual index into the `leaf` and `pointer` arrays
+    pub fn position(idx: usize) -> Vector3<f32> {
+        vec3(
+            if idx & (1 << 2) > 0 { 1.0 } else { -1.0 },
+            if idx & (1 << 1) > 0 { 1.0 } else { -1.0 },
+            if idx & 1 > 0 { 1.0 } else { -1.0 },
+        )
+    }
 }
 
 pub fn to_uniform(x: Octree) -> Box<[NodeB]> {
@@ -140,7 +148,7 @@ mod tests {
             18953794.423546,
             345789245897.45235,
             43890235904358.5823497592837589,
-            0.0
+            0.0,
         ];
         assert_eq!(
             encoded,
@@ -151,12 +159,15 @@ mod tests {
     #[test]
     fn decode_idx() {
         let a_i = 0b101;
-        let a_v = vec3(1.0,-1.0,1.0);
+        let a_v = vec3(1.0, -1.0, 1.0);
         let b_i = 0b010;
-        let b_v = vec3(-1.0,1.0,-1.0);
+        let b_v = vec3(-1.0, 1.0, -1.0);
 
-        assert_eq!(a_i,Node::idx(a_v));
-        assert_eq!(b_i,Node::idx(b_v));
-        assert_ne!(Node::idx(a_v),Node::idx(b_v));
+        assert_eq!(a_i, Node::idx(a_v));
+        assert_eq!(b_i, Node::idx(b_v));
+        assert_ne!(Node::idx(a_v), Node::idx(b_v));
+
+        assert_eq!(a_v, Node::position(a_i));
+        assert_eq!(b_v, Node::position(b_i));
     }
 }
