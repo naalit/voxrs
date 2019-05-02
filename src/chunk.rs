@@ -57,7 +57,7 @@ pub fn combine_trees(mut trees: [Octree; 8]) -> Octree {
         .into_iter();
     lengths.clone().zip(trees.iter_mut()).for_each(|(i, x)| {
         x.iter_mut()
-            .for_each(|y| y.pointer.iter_mut().for_each(|z| *z = *z + i))
+            .for_each(|y| y.pointer.iter_mut().zip(y.leaf.iter()).for_each(|(z,l)| if !l { *z = *z + i }))
     });
     let root = Node {
         leaf: [false; 8],
@@ -93,10 +93,7 @@ pub fn chunk_to_tree(chunk: [[[usize; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE]) -> 
         scale: i32,
     }
 
-    let mut tree = vec![Node {
-        leaf: [false; 8],
-        pointer: [0; 8],
-    }];
+    let mut tree: Octree = Vec::new();
     let levels = (CHUNK_SIZE as f32).log2() as i32;
 
     let mut stack: Vec<ST> = vec![];
@@ -147,7 +144,6 @@ pub fn chunk_to_tree(chunk: [[[usize; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE]) -> 
                 });
             }
         }
-
         if b && !root {
             let uidx = Node::idx(idx);
             tree[parent].leaf[uidx] = false;
@@ -174,7 +170,7 @@ pub fn tree_to_chunk(tree: Octree) -> [[[usize; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_
                 *b = octree_get(
                     &tree,
                     CHUNK_SIZE as f32,
-                    &vec3((x as f32) - rad, (y as f32) - rad, (z as f32) - rad),
+                    &(vec3((x as f32) - rad, (y as f32) - rad, (z as f32) - rad) + 0.5),
                 );
             }
         }
@@ -197,13 +193,13 @@ mod tests {
         chunk[0][0][1] = 1;
         let tree = chunk_to_tree(chunk);
         print!("{:?}", tree);
-        println!("{}",tree.len());
+        println!("{}", tree.len());
         assert_eq!(
             1,
             octree_get(
                 &tree,
                 CHUNK_SIZE as f32,
-                &(vec3(12.0, 4.0, 2.0) + 2.0 - 0.5 * CHUNK_SIZE as f32)
+                &(vec3(12.0, 4.0, 2.0) + 0.5 - 0.5 * CHUNK_SIZE as f32)
             )
         );
         assert_eq!(chunk, tree_to_chunk(tree));

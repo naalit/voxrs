@@ -9,6 +9,12 @@ uniform vec3 cameraPos;
 uniform vec3 cameraDir;
 uniform vec3 cameraUp;
 
+#define OCTREE 0
+
+// Switch between fb39ca's DDA (https://www.shadertoy.com/view/4dX3zl) and Amanatides and Woo's algorithm
+#define DDA
+
+#if OCTREE
 // We'll need to change the max later
 #define MAX_LEVELS 8
 uniform int levels;
@@ -16,7 +22,13 @@ uniform int levels;
 buffer octree {
     dvec4 nodes[];
 };
+#else
 
+uniform sampler3D chunks;
+uniform vec3 chunk_origin;
+// const vec3 chunk_origin = vec3(0,-32,0);
+
+#endif
 // in vec3 vertColor;
 
 out vec4 fragColor;
@@ -32,6 +44,7 @@ void main() {
 
 // -------------------------------------------
 
+#if OCTREE
 
 struct Node {
     bool[8] leaf;
@@ -138,6 +151,7 @@ Node voxel(Node parent, vec3 idx) {
     return decode(nodes[parent.pointer[uidx(idx)]]);
 }
 
+#endif
 
 // -------------------------------------------
 
@@ -156,8 +170,10 @@ Node voxel(Node parent, vec3 idx) {
 // Enable this to see the exact raymarched model
 // #define MARCH
 
+#ifdef OCTREE
 // The size of the scene. Don't change unless you change the distance function
 const float root_size = 16.*2.*2.;
+#endif
 // The resolution, in octree levels. Feel free to play around with this one
 // const int levels = 9;
 
@@ -237,6 +253,7 @@ vec2 isect(in vec3 pos, in float size, in vec3 ro, in vec3 rd, out vec3 tmid, ou
     return vec2(max(tmin.x, max(tmin.y, tmin.z)), min(tmax.x, min(tmax.y, tmax.z)));
 }
 
+#if OCTREE
 struct ST {
     Node parent;
     vec3 pos;
@@ -250,11 +267,12 @@ void stack_reset() { stack_ptr = 0; }
 void stack_push(in ST s) { stack[stack_ptr++] = s; }
 ST stack_pop() { return stack[--stack_ptr]; }
 bool stack_empty() { return stack_ptr == 0; }
-
+#endif
 
 // -----------------------------------------------------------------------------------------
 
 #ifndef MARCH
+#if OCTREE
 // The actual ray tracer, based on https://research.nvidia.com/publication/efficient-sparse-voxel-octrees
 bool trace(in vec3 ro, in vec3 rd, out vec2 t, out vec3 pos, out int iter, out float size) {
     stack_reset();
@@ -271,7 +289,7 @@ bool trace(in vec3 ro, in vec3 rd, out vec2 t, out vec3 pos, out int iter, out f
     Node parent = decode(nodes[0]);
     t = isect(pos, size, ro, rd, tmid, tmax);
     float h = t.y;
-    //if (!(t.y >= t.x && t.y >= 0.0)) { return false; }
+    if (!(t.y >= t.x && t.y >= 0.0)) { return false; }
 
     // Initial push, sort of
     // If the minimum is before the middle in this axis, we need to go to the first one (-rd)
@@ -338,6 +356,68 @@ bool trace(in vec3 ro, in vec3 rd, out vec2 t, out vec3 pos, out int iter, out f
     return false;
 }
 
+#else
+
+uint getVoxel(ivec3 pos) {
+    return uint(pos.y <= 4.0*sin(float(pos.x)*0.1+20.0));
+}
+
+// Regular grid
+bool trace(in vec3 ro, in vec3 rd, out vec2 t, out vec3 pos, out int iter, out float size, out vec3 normal) {
+    size = 1.0;
+
+    ivec3 total_size = textureSize(chunks, 0);
+    float root_size = float(total_size.x) * 0.5;
+
+    pos = chunk_origin + root_size;//vec3(root_size); // Center
+    vec3 tmid, tmax_root, tmax;
+    // We translate it to "grid space" first, so pos = vec3(0) is actually chunk_origin in world coordinates
+    vec3 ro_chunk = ro - chunk_origin + root_size;
+    t = isect(pos, root_size*2.0, ro_chunk, rd, tmid, tmax_root);
+    pos = ro_chunk;// + (t.x+0.01) * rd;
+    ivec3 ipos = ivec3(floor(pos));
+    ivec3 istep = ivec3(sign(rd));
+    isect(vec3(ipos) + 0.5, size, ro_chunk, rd, tmid, tmax);
+    vec3 tdelta = abs(1.0 / rd);
+    #ifdef DDA
+    vec3 sideDist = (sign(rd) * (vec3(ipos) - ro_chunk) + (sign(rd) * 0.5) + 0.5) * tdelta;
+    bvec3 mask;
+    #endif
+
+    iter = MAX_ITER;
+    while (iter --> 0) {
+        uint voxel =
+            // getVoxel(ipos);
+            floatBitsToUint(texelFetch(chunks, ipos, 0).r);
+        if (voxel != 0) {
+            normal = vec3(mask);
+            pos = vec3(ipos) + 0.5;
+            return true;
+        }
+        #ifdef DDA
+
+        mask = lessThanEqual(sideDist.xyz, min(sideDist.yzx, sideDist.zxy));
+        sideDist += vec3(mask) * tdelta;
+        ipos += ivec3(mask) * istep;
+        // if (length(sideDist * vec3(mask)) > t.y) { return false; }
+
+        #else
+
+        vec3 mask = tmax.x > tmax.y ?
+            (tmax.x > tmax.z ? vec3(1,0,0) : vec3(0,0,1))
+          : (tmax.y > tmax.z ? vec3(0,1,0) : vec3(0,0,1));
+        tmax += mask * tdelta;
+        ipos += ivec3(mask) * istep;
+
+        if (tmax.x > tmax_root.x || tmax.y > tmax_root.y || tmax.z > tmax_root.z) { return false; }
+
+        #endif
+    }
+    return false;
+}
+
+
+#endif
 #else
 // Simple ray marcher for visualizing the exact distance function
 bool trace(in vec3 ro, in vec3 rd, out vec2 t, out vec3 pos, out int iter, out float size) {
@@ -585,33 +665,33 @@ vec3 roundN(vec3 x, float n) {
     return round(x*n)/n;
 }
 
-vec3 shade(vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos) {
-    // The biggest component of intersection_pos - voxel_pos is the normal direction
-    #ifdef MARCH
-    /*
-    // The normal here isn't really accurate, the surface is too high-frequency
-    float e = 0.0001;
-    vec3 eps = vec3(e,0.0,0.0);
-	vec3 n = normalize( vec3(
-           dist(pos+eps.xyy) - dist(pos-eps.xyy),
-           dist(pos+eps.yxy) - dist(pos-eps.yxy),
-           dist(pos+eps.yyx) - dist(pos-eps.yyx) ) );
-	*/
-    // This pretends the Mandelbulb is actually a sphere, but it looks okay w/ AO.
-    vec3 n = normalize(pos);
-    // And this isn't accurate even for a sphere, but it ensures the edges are visible.
-    n = faceforward(n,-rd,-n);
-    vec3 p = pos;
-    #else
-
-    // The largest component of the vector from the center to the point on the surface,
-    //	is necessarily the normal.
-    vec3 p = ro+rd*t.x;
-    vec3 n = (p - pos);
-    n = sign(n) * (abs(n.x) > abs(n.y) ? // Not y
-        (abs(n.x) > abs(n.z) ? vec3(1., 0., 0.) : vec3(0., 0., 1.)) :
-    	(abs(n.y) > abs(n.z) ? vec3(0., 1., 0.) : vec3(0., 0., 1.)));
-    #endif
+vec3 shade(vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos, vec3 n) {
+    // // The biggest component of intersection_pos - voxel_pos is the normal direction
+    // #ifdef MARCH
+    // /*
+    // // The normal here isn't really accurate, the surface is too high-frequency
+    // float e = 0.0001;
+    // vec3 eps = vec3(e,0.0,0.0);
+	// vec3 n = normalize( vec3(
+    //        dist(pos+eps.xyy) - dist(pos-eps.xyy),
+    //        dist(pos+eps.yxy) - dist(pos-eps.yxy),
+    //        dist(pos+eps.yyx) - dist(pos-eps.yyx) ) );
+	// */
+    // // This pretends the Mandelbulb is actually a sphere, but it looks okay w/ AO.
+    // vec3 n = normalize(pos);
+    // // And this isn't accurate even for a sphere, but it ensures the edges are visible.
+    // n = faceforward(n,-rd,-n);
+    // vec3 p = pos;
+    // #else
+    //
+    // // The largest component of the vector from the center to the point on the surface,
+    // //	is necessarily the normal.
+    vec3 p = pos;//ro+rd*t.x;
+    // vec3 n = (p - pos);
+    // n = sign(n) * (abs(n.x) > abs(n.y) ? // Not y
+    //     (abs(n.x) > abs(n.z) ? vec3(1., 0., 0.) : vec3(0., 0., 1.)) :
+    // 	(abs(n.y) > abs(n.z) ? vec3(0., 1., 0.) : vec3(0., 0., 1.)));
+    // #endif
 
     Material mat = Material(normalize(abs(n)+abs(pos)+vec3(0.5)), 0.9); // Color from normal+position of voxel
     mat.base_color = vec3(1.,.9,.7);
@@ -697,8 +777,10 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     vec3 pos;
     float size;
     int iter;
+    vec3 n;
 
-    vec3 col = trace(ro, rd, t, pos, iter, size) ? shade(ro, rd, t, iter, pos) : sky_cam(ro, -rd);
+    vec3 col = trace(ro, rd, t, pos, iter, size, n) ? shade(ro, rd, t, iter, pos, n) : sky_cam(ro, -rd);
+    // col = vec3(1.0) * float(iter)/float(MAX_ITER);
 
     fragColor = vec4(col,1.0);
 }

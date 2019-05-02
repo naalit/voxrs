@@ -104,16 +104,22 @@ pub fn generate() -> Octree {
     for x in -CHUNK_NUM..CHUNK_NUM {
         for y in -CHUNK_NUM..CHUNK_NUM {
             for z in -CHUNK_NUM..CHUNK_NUM {
-                chunks.insert((x, y, z), chunk_to_tree(gen_chunk(ivec3(x, y, z))));
+                let chunk = gen_chunk(ivec3(x, y, z));
+                chunks.insert((x, y, z), chunk_to_tree(chunk));
             }
         }
     }
     /*
 
-    /   /   /   /
-    /   /   /   /
-    /   /   /   /
-    /   /   /   /
+    -2  -1  0   1
+-2  /   /   /   /
+-1  /   /   /   /
+0   /   /   /   /
+1   /   /   /   /
+
+    -1  0
+-1  /   /
+ 0  /   /
 
     */
     for i in 0.. {
@@ -129,15 +135,15 @@ pub fn generate() -> Octree {
                     chunks_2.insert(
                         (x, y, z),
                         combine_trees([
-                            chunks.get(&(x * 2, y * 2, z * 2)).unwrap().clone(),
-                            chunks.get(&(x * 2, y * 2, z * 2 + 1)).unwrap().clone(),
-                            chunks.get(&(x * 2, y * 2 + 1, z * 2)).unwrap().clone(),
-                            chunks.get(&(x * 2, y * 2 + 1, z * 2 + 1)).unwrap().clone(),
-                            chunks.get(&(x * 2 + 1, y * 2, z * 2)).unwrap().clone(),
-                            chunks.get(&(x * 2 + 1, y * 2, z * 2 + 1)).unwrap().clone(),
-                            chunks.get(&(x * 2 + 1, y * 2 + 1, z * 2)).unwrap().clone(),
+                            chunks.get(&(x * 2, y * 2, z * 2)).unwrap().clone(), // 0b000
+                            chunks.get(&(x * 2, y * 2, z * 2 + 1)).unwrap().clone(), // 0b001
+                            chunks.get(&(x * 2, y * 2 + 1, z * 2)).unwrap().clone(), // 0b010
+                            chunks.get(&(x * 2, y * 2 + 1, z * 2 + 1)).unwrap().clone(), // 0b011
+                            chunks.get(&(x * 2 + 1, y * 2, z * 2)).unwrap().clone(), // 0b100
+                            chunks.get(&(x * 2 + 1, y * 2, z * 2 + 1)).unwrap().clone(), // 0b101
+                            chunks.get(&(x * 2 + 1, y * 2 + 1, z * 2)).unwrap().clone(), // 0b110
                             chunks
-                                .get(&(x * 2 + 1, y * 2 + 1, z * 2 + 1))
+                                .get(&(x * 2 + 1, y * 2 + 1, z * 2 + 1)) // 0b111
                                 .unwrap()
                                 .clone(),
                         ]),
@@ -161,13 +167,15 @@ pub fn generate() -> Octree {
 
 pub fn gen_chunk(loc: Vector3<i32>) -> [[[usize; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE] {
     let mut c = [[[0; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE];
-    let rad = (CHUNK_SIZE as i32) / 2;
+    let rad = (CHUNK_SIZE as f32) / 2.0;
+    //if loc == ivec3(0,0,0) { println!("Why is zero?"); }
     for (x, row_x) in c.iter_mut().enumerate() {
         for (y, row_y) in row_x.iter_mut().enumerate() {
             for (z, b) in row_y.iter_mut().enumerate() {
                 *b = gen_block(
-                    loc * (CHUNK_SIZE as i32)
-                        + ivec3((x as i32) - rad, (y as i32) - rad, (z as i32) - rad),
+                    to_vec3(loc) * (CHUNK_SIZE as f32)
+                        + 0.5
+                        + vec3((x as f32) - rad, (y as f32) - rad, (z as f32) - rad),
                 );
             }
         }
@@ -175,15 +183,21 @@ pub fn gen_chunk(loc: Vector3<i32>) -> [[[usize; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK
     c
 }
 
-pub fn gen_block(loc: Vector3<i32>) -> usize {
-    let h = height(vec2(loc.x as f32, loc.y as f32));
-    if loc.y <= h as i32 {
+pub fn gen_block(loc: Vector3<f32>) -> usize {
+    let h = height(vec2(loc.x, loc.z));
+    if loc.y <= h {
         1
     } else {
         0
     }
+    // ;
+    // if loc.y == 0.5 && loc.x == 4.5 {
+    //     1
+    // } else {
+    //     0
+    // }
 }
 
 pub fn height(loc: Vector2<f32>) -> f32 {
-    loc.x - 10.0//sin(loc.x) * cos(loc.y) * 10.0
+    sin(loc.x) * 4.0//cos(loc.y) * 4.0
 }

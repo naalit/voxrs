@@ -6,9 +6,10 @@ extern crate rayon;
 
 use glm::*;
 
-mod octree;
-mod terrain;
-mod chunk;
+// mod octree;
+// mod terrain;
+// mod chunk;
+mod grid;
 
 #[derive(Copy, Clone)]
 struct Vertex {
@@ -19,6 +20,8 @@ implement_vertex!(Vertex, pos);
 fn vert(x: f32, y: f32) -> Vertex {
     Vertex { pos: [x, y] }
 }
+
+const MOVE_SPEED: f32 = 0.01;
 
 fn main() {
     use glium::glutin;
@@ -70,27 +73,35 @@ fn main() {
         },
     ];
     let max_length = 2;*/
-    let octree = terrain::generate();
-    let max_length = octree.len();
-    println!("{}",max_length);
-    let mut octree_buffer: glium::buffer::Buffer<[[f64; 4]]> =
-        glium::buffer::Buffer::empty_unsized(//empty_unsized_persistent(
-            &display,
-            glium::buffer::BufferType::ShaderStorageBuffer,
-            std::mem::size_of::<[f64; 4]>() * max_length,
-            glium::buffer::BufferMode::Persistent,
-        )
-        .unwrap();
+    // let octree = terrain::generate();
+    // let max_length = octree.len();
+    // println!("{}",max_length);
+    // let mut octree_buffer: glium::buffer::Buffer<[[f64; 4]]> =
+    //     glium::buffer::Buffer::empty_unsized(//empty_unsized_persistent(
+    //         &display,
+    //         glium::buffer::BufferType::ShaderStorageBuffer,
+    //         std::mem::size_of::<[f64; 4]>() * max_length,
+    //         glium::buffer::BufferMode::Persistent,
+    //     )
+    //     .unwrap();
     /*{
         let mut octree_pointer = octree_buffer.map_write();
         octree_pointer.set(0, octree[0].uniform());
         octree_pointer.set(1, octree[1].uniform());
     }*/
-    octree_buffer.write(&octree::to_uniform(octree));
+    // octree_buffer.write(&octree::to_uniform(octree));
+
+    let chunks = grid::generate();
+    let chunks = grid::combine(chunks);
+    let chunk_buffer = glium::texture::texture3d::Texture3d::with_format(&display, chunks, glium::texture::UncompressedFloatFormat::U16, glium::texture::MipmapsOption::NoMipmap).unwrap();
+    println!("{:?}", chunk_buffer.get_internal_format());
+
     let mut last = timer.elapsed_ms();
+    let mut camera_pos = vec3(0.0,10.0,0.0);
     while !closed {
         let cur = timer.elapsed_ms();
-        println!("FPS: {}", 1000 / (cur - last).max(1));
+        let delta = cur - last;
+        println!("FPS: {}", 1000 / delta.max(1));
         last = cur;
         let mut target = display.draw();
         target.clear_color(0.0, 0.0, 1.0, 1.0);
@@ -98,12 +109,12 @@ fn main() {
         let res = target.get_dimensions();
         let res = vec2(res.0 as f32, res.1 as f32);
         let r = 12. * mouse.x / res.x;
-        let camera_pos = vec3(
-            5.0 * (0.5 * r).sin(),
-            15.5 - 6.0 * mouse.y / res.y,
-            5.0 * (0.5 * r).cos(),
+        let look_at = vec3(
+            camera_pos.x + 5.0 * (0.5 * r).sin(),
+            camera_pos.y + 6.0 * mouse.y / res.y,
+            camera_pos.z + 5.0 * (0.5 * r).cos(),
         );
-        let look_at = vec3(0.0, 13.0, 0.0);
+        //let look_at = vec3(0.0, 23.0, 0.0);
         let camera_dir = normalize(look_at - camera_pos);
         let camera_up = vec3(0.0, 1.0, 0.0);
         target
@@ -118,7 +129,9 @@ fn main() {
                    cameraPos: *camera_pos.as_array(),
                    cameraDir: *camera_dir.as_array(),
                    cameraUp: *camera_up.as_array(),
-                   octree: &octree_buffer,
+                   chunks: &chunk_buffer,
+                   chunk_origin: [0.0,0.0,0.0_f32],
+                   // octree: &octree_buffer,
                    levels: 2,
                 },
                 &Default::default(),
@@ -140,7 +153,26 @@ fn main() {
                         if m_down { position.x as f32 } else { mouse.x },
                         if m_down { position.y as f32 } else { mouse.y },
                     )
-                }
+                },
+                glutin::WindowEvent::KeyboardInput { input, .. } => {
+                    if let glutin::ElementState::Pressed = input.state {
+                        match input.virtual_keycode {
+                            Some(glutin::VirtualKeyCode::Comma) => {
+                                camera_pos = camera_pos + vec3(1.0, 0.0, 1.0) * camera_dir * (delta as f64 * MOVE_SPEED as f64) as f32;
+                            },
+                            Some(glutin::VirtualKeyCode::O) => {
+                                camera_pos = camera_pos - vec3(1.0, 0.0, 1.0) * camera_dir * (delta as f64 * MOVE_SPEED as f64) as f32;
+                            },
+                            Some(glutin::VirtualKeyCode::Space) => {
+                                camera_pos = camera_pos + vec3(0.0, 1.0, 0.0) * (delta as f64 * MOVE_SPEED as f64) as f32;
+                            },
+                            Some(glutin::VirtualKeyCode::P) => {
+                                camera_pos = camera_pos - vec3(0.0, 1.0, 0.0) * (delta as f64 * MOVE_SPEED as f64) as f32;
+                            }
+                            _ => (),
+                        }
+                    }
+                },
                 _ => (),
             },
             /*glutin::Event::DeviceEvent { event, .. } => match event {
