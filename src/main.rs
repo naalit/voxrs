@@ -2,11 +2,13 @@
 extern crate glium;
 extern crate glm;
 extern crate stopwatch;
+extern crate rayon;
 
 use glm::*;
 
 mod octree;
 mod terrain;
+mod chunk;
 
 #[derive(Copy, Clone)]
 struct Vertex {
@@ -70,6 +72,7 @@ fn main() {
     let max_length = 2;*/
     let octree = terrain::generate();
     let max_length = octree.len();
+    println!("{}",max_length);
     let mut octree_buffer: glium::buffer::Buffer<[[f64; 4]]> =
         glium::buffer::Buffer::empty_unsized(//empty_unsized_persistent(
             &display,
@@ -84,7 +87,11 @@ fn main() {
         octree_pointer.set(1, octree[1].uniform());
     }*/
     octree_buffer.write(&octree::to_uniform(octree));
+    let mut last = timer.elapsed_ms();
     while !closed {
+        let cur = timer.elapsed_ms();
+        println!("FPS: {}", 1000 / (cur - last).max(1));
+        last = cur;
         let mut target = display.draw();
         target.clear_color(0.0, 0.0, 1.0, 1.0);
 
@@ -93,10 +100,10 @@ fn main() {
         let r = 12. * mouse.x / res.x;
         let camera_pos = vec3(
             5.0 * (0.5 * r).sin(),
-            5.5 - 6.0 * mouse.y / res.y,
+            15.5 - 6.0 * mouse.y / res.y,
             5.0 * (0.5 * r).cos(),
         );
-        let look_at = vec3(0.0, 0.0, 0.0);
+        let look_at = vec3(0.0, 13.0, 0.0);
         let camera_dir = normalize(look_at - camera_pos);
         let camera_up = vec3(0.0, 1.0, 0.0);
         target
@@ -118,6 +125,7 @@ fn main() {
             )
             .unwrap();
 
+        //std::thread::sleep(std::time::Duration::from_millis(100));
         target.finish().unwrap();
 
         events_loop.poll_events(|event| match event {
@@ -141,6 +149,5 @@ fn main() {
             },*/
             _ => (),
         });
-        //std::thread::sleep(std::time::Duration::from_millis(100));
     }
 }

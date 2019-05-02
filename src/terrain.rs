@@ -1,5 +1,8 @@
-use glm::*;
+use super::chunk::*;
 use super::octree::*;
+use glm::*;
+use rayon::prelude::*;
+use std::collections::HashMap;
 
 // These are parameters for the Mandelbulb, change if you want. Higher is usually slower
 const Power: f32 = 4.0;
@@ -11,34 +14,36 @@ const Iterations: i32 = 6;
 fn dist(pos: Vector3<f32>) -> f32 {
     // This function takes ~all of the rendering time, the trigonometry is super expensive
     // So if there are any faster approximations, they should definitely be used
-	let mut z = pos;
-	let mut dr = 1.0;
-	let mut r = 0.0;
+    let mut z = pos;
+    let mut dr = 1.0;
+    let mut r = 0.0;
     for i in 0..Iterations {
-		r = length(z);
-		if r>Bailout { break; }
+        r = length(z);
+        if r > Bailout {
+            break;
+        }
 
-		// convert to polar coordinates
-		let mut theta = acos(z.z/r);
+        // convert to polar coordinates
+        let mut theta = acos(z.z / r);
         // #if ANIMATE
         // theta += iTime*0.5;
         // #endif
-		let mut phi = atan(z.y/z.x);
+        let mut phi = atan(z.y / z.x);
         // #if ANIMATE
         // phi += iTime*0.5;
         // #endif
-		dr = pow( r, Power-1.0)*Power*dr + 1.0;
+        dr = pow(r, Power - 1.0) * Power * dr + 1.0;
 
-		// scale and rotate the point
-		let zr = pow( r,Power);
-		theta = theta*Power;
-		phi = phi*Power;
+        // scale and rotate the point
+        let zr = pow(r, Power);
+        theta = theta * Power;
+        phi = phi * Power;
 
-		// convert back to cartesian coordinates
-		z = vec3(sin(theta)*cos(phi), sin(phi)*sin(theta), cos(theta)) * zr;
+        // convert back to cartesian coordinates
+        z = vec3(sin(theta) * cos(phi), sin(phi) * sin(theta), cos(theta)) * zr;
         z = z + pos;
-	}
-	return 0.5*log(r)*r/dr;
+    }
+    return 0.5 * log(r) * r / dr;
 }
 
 struct ST {
@@ -47,7 +52,7 @@ struct ST {
     pos: Vector3<f32>,
     scale: i32,
 }
-
+/*
 pub fn generate() -> Octree {
     let levels = 6;
     let mut stack: Vec<ST> = vec![];
@@ -91,4 +96,94 @@ pub fn generate() -> Octree {
             tree.push(v);
     };
     tree
+}
+*/
+
+pub fn generate() -> Octree {
+    let mut chunks: HashMap<(i32, i32, i32), Octree> = HashMap::new();
+    for x in -CHUNK_NUM..CHUNK_NUM {
+        for y in -CHUNK_NUM..CHUNK_NUM {
+            for z in -CHUNK_NUM..CHUNK_NUM {
+                chunks.insert((x, y, z), chunk_to_tree(gen_chunk(ivec3(x, y, z))));
+            }
+        }
+    }
+    /*
+
+    /   /   /   /
+    /   /   /   /
+    /   /   /   /
+    /   /   /   /
+
+    */
+    for i in 0.. {
+        if chunks.len() < 16 {
+            break;
+        };
+        let mut chunks_2 = HashMap::new();
+        let n = (chunks.len() as f32).cbrt() / 4.0;
+        let n = n as i32;
+        for x in -n..n {
+            for y in -n..n {
+                for z in -n..n {
+                    chunks_2.insert(
+                        (x, y, z),
+                        combine_trees([
+                            chunks.get(&(x * 2, y * 2, z * 2)).unwrap().clone(),
+                            chunks.get(&(x * 2, y * 2, z * 2 + 1)).unwrap().clone(),
+                            chunks.get(&(x * 2, y * 2 + 1, z * 2)).unwrap().clone(),
+                            chunks.get(&(x * 2, y * 2 + 1, z * 2 + 1)).unwrap().clone(),
+                            chunks.get(&(x * 2 + 1, y * 2, z * 2)).unwrap().clone(),
+                            chunks.get(&(x * 2 + 1, y * 2, z * 2 + 1)).unwrap().clone(),
+                            chunks.get(&(x * 2 + 1, y * 2 + 1, z * 2)).unwrap().clone(),
+                            chunks
+                                .get(&(x * 2 + 1, y * 2 + 1, z * 2 + 1))
+                                .unwrap()
+                                .clone(),
+                        ]),
+                    );
+                }
+            }
+        }
+        chunks = chunks_2;
+    }
+    combine_trees([
+        chunks.get(&(-1, -1, -1)).unwrap().clone(),
+        chunks.get(&(-1, -1, 0)).unwrap().clone(),
+        chunks.get(&(-1, 0, -1)).unwrap().clone(),
+        chunks.get(&(-1, 0, 0)).unwrap().clone(),
+        chunks.get(&(0, -1, -1)).unwrap().clone(),
+        chunks.get(&(0, -1, 0)).unwrap().clone(),
+        chunks.get(&(0, 0, -1)).unwrap().clone(),
+        chunks.get(&(0, 0, 0)).unwrap().clone(),
+    ])
+}
+
+pub fn gen_chunk(loc: Vector3<i32>) -> [[[usize; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE] {
+    let mut c = [[[0; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE];
+    let rad = (CHUNK_SIZE as i32) / 2;
+    for (x, row_x) in c.iter_mut().enumerate() {
+        for (y, row_y) in row_x.iter_mut().enumerate() {
+            for (z, b) in row_y.iter_mut().enumerate() {
+                *b = gen_block(
+                    loc * (CHUNK_SIZE as i32)
+                        + ivec3((x as i32) - rad, (y as i32) - rad, (z as i32) - rad),
+                );
+            }
+        }
+    }
+    c
+}
+
+pub fn gen_block(loc: Vector3<i32>) -> usize {
+    let h = height(vec2(loc.x as f32, loc.y as f32));
+    if loc.y <= h as i32 {
+        1
+    } else {
+        0
+    }
+}
+
+pub fn height(loc: Vector2<f32>) -> f32 {
+    loc.x - 10.0//sin(loc.x) * cos(loc.y) * 10.0
 }

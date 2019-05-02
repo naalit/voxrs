@@ -3,7 +3,7 @@ use glm::*;
 /// The type of the base octree node; leaf bitmask & eight pointers.
 /// We use eight pointers instead of one to eight sequential children so that it's easier to add and remove non-leaf children, without having to move nodes, which would be prohibitively expensive.
 /// The indices for each of these arrays have bits corresponding to children on the axis `x,y,z`, from most to least significant
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Debug, Clone)]
 pub struct Node {
     pub leaf: [bool; 8],
     pub pointer: [usize; 8], // each is actually 23-bit
@@ -124,6 +124,26 @@ pub fn to_uniform(x: Octree) -> Box<[NodeB]> {
         .map(|x| x.uniform())
         .collect::<Vec<NodeB>>()
         .into_boxed_slice()
+}
+
+pub fn octree_get(tree: &Octree, mut size: f32, loc: &Vector3<f32>) -> usize {
+    let mut node = &tree[0];
+    let mut pos = vec3(0.0, 0.0, 0.0);
+    // scale=0, size=16
+    //size *= 0.5;
+    loop {
+        let idx = Node::idx(ivec3(
+            if loc.x > pos.x { 1 } else { -1 },
+            if loc.y > pos.y { 1 } else { -1 },
+            if loc.z > pos.z { 1 } else { -1 },
+        ));
+        if node.leaf[idx] {
+            return node.pointer[idx];
+        };
+        node = &tree[node.pointer[idx]];
+        size *= 0.5;
+        pos = pos + Node::position(idx) * size * 0.5;
+    }
 }
 
 // --------------------------------------------------------------------------------------
