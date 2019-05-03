@@ -5,8 +5,8 @@ pub const CHUNK_SIZE: usize = 16;
 // This is in a 'diameter'
 pub const CHUNK_NUM: usize = 16;
 
-type Block = u16;
-type Chunk = [[[Block; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE];
+pub type Block = u16;
+pub type Chunk = [[[Block; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE];
 type World = Vec<Vec<Vec<Chunk>>>;
 type WorldU = Vec<Vec<Vec<u16>>>;
 
@@ -37,7 +37,7 @@ pub fn generate() -> World {
     c
 }
 
-fn gen_chunk(loc: Vector3<i32>) -> Chunk {
+pub fn gen_chunk(loc: Vector3<i32>) -> Chunk {
     let mut c = [[[0; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE];
     let rad = (CHUNK_SIZE as f32) / 2.0;
     //if loc == ivec3(0,0,0) { println!("Why is zero?"); }
@@ -93,9 +93,12 @@ fn noise(pos: Vec3) -> f32 {
                         -0.60, -0.48,  0.64 );
     let mut q = pos*8.0;
     let mut f  = 0.5000*noise3( q ); q = m*q*2.01;
-    f += 0.2500*noise3( q ); q = m*q*2.02;
-    f += 0.1250*noise3( q ); q = m*q*2.03;
-    f += 0.0625*noise3( q ); q = m*q*2.01;
+    f += 0.2500*noise3( q );
+    q = m*q*2.02;
+    f += 0.1250*noise3( q );
+    q = m*q*2.03;
+    f += 0.0625*noise3( q );
+    // q = m*q*2.01;
     f
 }
 
@@ -104,6 +107,6 @@ fn noise2(pos: Vec2) -> f32 {
 }
 
 fn height(loc: Vector2<f32>) -> f32 {
-    noise2(loc*0.01) * 4.0
+    noise2(loc*0.001) * 2.0
     //sin(loc.x) * cos(loc.y) * 4.0
 }

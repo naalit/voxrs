@@ -1,14 +1,14 @@
 #[macro_use]
 extern crate glium;
 extern crate glm;
-extern crate stopwatch;
 extern crate rayon;
+extern crate stopwatch;
 
 use glm::*;
 
 // mod octree;
 // mod terrain;
-// mod chunk;
+mod chunk;
 mod grid;
 
 #[derive(Copy, Clone)]
@@ -91,13 +91,29 @@ fn main() {
     }*/
     // octree_buffer.write(&octree::to_uniform(octree));
 
-    let chunks = grid::generate();
-    let chunks = grid::combine(chunks);
-    let chunk_buffer = glium::texture::texture3d::Texture3d::with_format(&display, chunks, glium::texture::UncompressedFloatFormat::U16, glium::texture::MipmapsOption::NoMipmap).unwrap();
+    let chunks = chunk::gen_chunks();
+    let chunks = chunks.to_uniform();
+    assert_eq!(chunks.chunks[3][3][3], (3 * 16, 3 * 16, 3 * 16));
+    assert_eq!(chunks.chunks[3][1][2], (3 * 16, 1 * 16, 2 * 16));
+    assert_eq!(chunks.chunks[1][2][3], (1 * 16, 2 * 16, 3 * 16));
+    let block_buffer = glium::texture::unsigned_texture3d::UnsignedTexture3d::with_format(
+        &display,
+        chunks.blocks,
+        glium::texture::UncompressedUintFormat::U16,
+        glium::texture::MipmapsOption::NoMipmap,
+    )
+    .unwrap();
+    let chunk_buffer = glium::texture::unsigned_texture3d::UnsignedTexture3d::with_format(
+        &display,
+        chunks.chunks,
+        glium::texture::UncompressedUintFormat::U8U8U8,
+        glium::texture::MipmapsOption::NoMipmap,
+    )
+    .unwrap();
     println!("{:?}", chunk_buffer.get_internal_format());
 
     let mut last = timer.elapsed_ms();
-    let mut camera_pos = vec3(0.0,10.0,0.0);
+    let mut camera_pos = vec3(0.0, 0.0, 0.0);
     while !closed {
         let cur = timer.elapsed_ms();
         let delta = cur - last;
@@ -130,6 +146,7 @@ fn main() {
                    cameraDir: *camera_dir.as_array(),
                    cameraUp: *camera_up.as_array(),
                    chunks: &chunk_buffer,
+                   blocks: &block_buffer,
                    chunk_origin: [0.0,0.0,0.0_f32],
                    // octree: &octree_buffer,
                    levels: 2,
@@ -153,26 +170,36 @@ fn main() {
                         if m_down { position.x as f32 } else { mouse.x },
                         if m_down { position.y as f32 } else { mouse.y },
                     )
-                },
+                }
                 glutin::WindowEvent::KeyboardInput { input, .. } => {
                     if let glutin::ElementState::Pressed = input.state {
                         match input.virtual_keycode {
                             Some(glutin::VirtualKeyCode::Comma) => {
-                                camera_pos = camera_pos + vec3(1.0, 0.0, 1.0) * camera_dir * (delta as f64 * MOVE_SPEED as f64) as f32;
-                            },
+                                camera_pos = camera_pos
+                                    + vec3(1.0, 0.0, 1.0)
+                                        * camera_dir
+                                        * (delta as f64 * MOVE_SPEED as f64) as f32;
+                            }
                             Some(glutin::VirtualKeyCode::O) => {
-                                camera_pos = camera_pos - vec3(1.0, 0.0, 1.0) * camera_dir * (delta as f64 * MOVE_SPEED as f64) as f32;
-                            },
+                                camera_pos = camera_pos
+                                    - vec3(1.0, 0.0, 1.0)
+                                        * camera_dir
+                                        * (delta as f64 * MOVE_SPEED as f64) as f32;
+                            }
                             Some(glutin::VirtualKeyCode::Space) => {
-                                camera_pos = camera_pos + vec3(0.0, 1.0, 0.0) * (delta as f64 * MOVE_SPEED as f64) as f32;
-                            },
+                                camera_pos = camera_pos
+                                    + vec3(0.0, 1.0, 0.0)
+                                        * (delta as f64 * MOVE_SPEED as f64) as f32;
+                            }
                             Some(glutin::VirtualKeyCode::P) => {
-                                camera_pos = camera_pos - vec3(0.0, 1.0, 0.0) * (delta as f64 * MOVE_SPEED as f64) as f32;
+                                camera_pos = camera_pos
+                                    - vec3(0.0, 1.0, 0.0)
+                                        * (delta as f64 * MOVE_SPEED as f64) as f32;
                             }
                             _ => (),
                         }
                     }
-                },
+                }
                 _ => (),
             },
             /*glutin::Event::DeviceEvent { event, .. } => match event {

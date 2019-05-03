@@ -10,6 +10,7 @@ uniform vec3 cameraDir;
 uniform vec3 cameraUp;
 
 #define OCTREE 0
+#define CHUNK_SIZE 16
 
 // Switch between fb39ca's DDA (https://www.shadertoy.com/view/4dX3zl) and Amanatides and Woo's algorithm
 #define DDA
@@ -24,9 +25,9 @@ buffer octree {
 };
 #else
 
-uniform sampler3D chunks;
+uniform usampler3D chunks;
+uniform usampler3D blocks;
 uniform vec3 chunk_origin;
-// const vec3 chunk_origin = vec3(0,-32,0);
 
 #endif
 // in vec3 vertColor;
@@ -358,15 +359,28 @@ bool trace(in vec3 ro, in vec3 rd, out vec2 t, out vec3 pos, out int iter, out f
 
 #else
 
+const int LOG2_CHUNK = int(log2(CHUNK_SIZE));
+int scene_size;
+
 uint getVoxel(ivec3 pos) {
-    return uint(pos.y <= 4.0*sin(float(pos.x)*0.1+20.0));
+    // return uint(texelFetch(chunks, ivec3(3,1,2), 0).zyx == uvec3(3*16, 1*16, 2*16));
+    if (any(lessThan(pos,ivec3(0))) || any(greaterThanEqual(pos,ivec3(scene_size))))
+        return 121212; // Bigger than the max for u16, so it will never be this for real
+    // return floatBitsToUint(texelFetch(blocks, pos, 0));
+    ivec3 chunk = /*pos >> LOG2_CHUNK; /*/ pos / CHUNK_SIZE;
+    ivec3 in_chunk = /*pos & (CHUNK_SIZE - 1); /*/ pos % CHUNK_SIZE;
+    uvec3 offset = texelFetch(chunks, chunk, 0).zyx;
+    // return uint(ivec3(offset) == chunk*CHUNK_SIZE);
+    // return uint((ivec3(offset) - chunk*CHUNK_SIZE).x < -32);
+    return texelFetch(blocks, ivec3(offset) + in_chunk, 0);
 }
 
 // Regular grid
 bool trace(in vec3 ro, in vec3 rd, out vec2 t, out vec3 pos, out int iter, out float size, out vec3 normal) {
     size = 1.0;
 
-    ivec3 total_size = textureSize(chunks, 0);
+    ivec3 total_size = textureSize(blocks, 0);
+    scene_size = total_size.x;
     float root_size = float(total_size.x) * 0.5;
 
     pos = chunk_origin + root_size;//vec3(root_size); // Center
@@ -387,11 +401,14 @@ bool trace(in vec3 ro, in vec3 rd, out vec2 t, out vec3 pos, out int iter, out f
     iter = MAX_ITER;
     while (iter --> 0) {
         uint voxel =
-            // getVoxel(ipos);
-            floatBitsToUint(texelFetch(chunks, ipos, 0).r);
+            getVoxel(ipos);
+            // texelFetch(chunks, ipos, 0).r;
+        if (voxel == 121212)
+            return false;
         if (voxel != 0) {
+            t = isect(vec3(ipos) + 0.5, size, ro_chunk, rd, tmid, tmax);
             normal = vec3(mask);
-            pos = vec3(ipos) + 0.5;
+            pos = vec3(ipos) + 0.5 + chunk_origin - root_size; // Translate it back to world space
             return true;
         }
         #ifdef DDA
@@ -621,7 +638,7 @@ float schlick_g1(vec3 v, vec3 n, float k) {
     return ndotv / (ndotv * (1. - k) + k);
 }
 
-vec3 brdf(vec3 from, vec3 to, vec3 n, Material mat, float ao) {
+vec3 brdf(vec3 from, vec3 to, vec3 n, Material mat) {
     float ior = 1.5;
 
     // Half vector
@@ -645,7 +662,7 @@ vec3 brdf(vec3 from, vec3 to, vec3 n, Material mat, float ao) {
     float geometry = schlick_g1(from, n, k) * schlick_g1(to, n, k);
 
     return saturate((fresnel*geometry*dist)/(4.*dot(n, from)*dot(n, to))
-        + ao*(1.-f0)*oren_nayar(from, to, n, mat));
+        + (1.-f0)*oren_nayar(from, to, n, mat));
 }
 
 
@@ -665,7 +682,47 @@ vec3 roundN(vec3 x, float n) {
     return round(x*n)/n;
 }
 
-vec3 shade(vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos, vec3 n) {
+float voxel(vec3 pos) {
+    ivec3 cpos = ivec3(pos - chunk_origin + float(scene_size)*0.5);
+    return float(getVoxel(cpos));
+}
+
+// From gltracy - https://www.shadertoy.com/view/MdBGRm
+void occlusion( vec3 v, vec3 n, out vec4 side, out vec4 corner ) {
+	vec3 s = n.yzx;
+	vec3 t = n.zxy;
+
+	side = vec4 (
+		voxel( v - s ),
+		voxel( v + s ),
+		voxel( v - t ),
+		voxel( v + t )
+	);
+
+	corner = vec4 (
+		voxel( v - s - t ),
+		voxel( v + s - t ),
+		voxel( v - s + t ),
+		voxel( v + s + t )
+	);
+}
+
+float filterf( vec4 side, vec4 corner, vec2 tc ) {
+	vec4 v = side.xyxy + side.zzww + corner;
+
+	return mix( mix( v.x, v.y, tc.y ), mix( v.z, v.w, tc.y ), tc.x ) * 0.25;
+}
+
+float ao( vec3 v, vec3 n, vec2 tc ) {
+	vec4 side, corner;
+
+	occlusion( v + n, abs( n ), side, corner );
+
+	return 1.0 - filterf( side, corner, tc );
+}
+
+
+vec3 shade(vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos, vec3 mask) {
     // // The biggest component of intersection_pos - voxel_pos is the normal direction
     // #ifdef MARCH
     // /*
@@ -686,11 +743,12 @@ vec3 shade(vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos, vec3 n) {
     //
     // // The largest component of the vector from the center to the point on the surface,
     // //	is necessarily the normal.
-    vec3 p = pos;//ro+rd*t.x;
-    // vec3 n = (p - pos);
-    // n = sign(n) * (abs(n.x) > abs(n.y) ? // Not y
-    //     (abs(n.x) > abs(n.z) ? vec3(1., 0., 0.) : vec3(0., 0., 1.)) :
-    // 	(abs(n.y) > abs(n.z) ? vec3(0., 1., 0.) : vec3(0., 0., 1.)));
+    vec3 p = ro+rd*t.x;
+    // vec3
+    vec3 n = (p - pos);
+    n = sign(n) * (abs(n.x) > abs(n.y) ? // Not y
+        (abs(n.x) > abs(n.z) ? vec3(1., 0., 0.) : vec3(0., 0., 1.)) :
+    	(abs(n.y) > abs(n.z) ? vec3(0., 1., 0.) : vec3(0., 0., 1.)));
     // #endif
 
     Material mat = Material(normalize(abs(n)+abs(pos)+vec3(0.5)), 0.9); // Color from normal+position of voxel
@@ -712,9 +770,10 @@ vec3 shade(vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos, vec3 n) {
                 lightDir = d;
             }
         }
+
         acc +=
-            //0.05*(float(iter)/float(MAX_ITER))*mat.base_color // Fake AO - try commenting out the next line
-            2.*pow(lightCol, vec3(2.2)) * brdf(lightDir, -rd, n, mat, (float(iter)/float(MAX_ITER)));
+            ao(pos,n,t) +
+            2.*pow(lightCol, vec3(2.2)) * brdf(lightDir, -rd, n, mat);
     }
     return acc / float(j);
 	#else
@@ -725,7 +784,12 @@ vec3 shade(vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos, vec3 n) {
     int iter_ = MAX_ITER;
     float size_;
     bool shadow = false;//trace(p+1.1*n*(root_size/exp2(levels)), vec3(0.0,1.0,0.0), t_, pos_, iter_, size_);
-    return (shadow ? vec3(0.3) : vec3(float(iter_)/float(MAX_ITER))) * c*brdf(-lightDir, -rd, n, mat, (float(iter)/float(MAX_ITER)));
+    vec2 tc =
+        ( fract( p.yz ) * mask.x ) +
+        ( fract( p.zx ) * mask.y ) +
+        ( fract( p.xy ) * mask.z );
+    return (shadow ? vec3(0.3) :
+        ao(pos,n,tc)*0.2*mat.base_color + c*brdf(-lightDir, -rd, n, mat));
     #endif
 }
 
