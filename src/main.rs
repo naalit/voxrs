@@ -3,8 +3,10 @@ extern crate glium;
 extern crate glm;
 extern crate rayon;
 extern crate stopwatch;
+extern crate glsl_include;
 
 use glm::*;
+use glsl_include::Context as ShaderContext;
 
 // mod octree;
 // mod terrain;
@@ -23,6 +25,22 @@ fn vert(x: f32, y: f32) -> Vertex {
 
 const MOVE_SPEED: f32 = 0.01;
 
+fn shader(path: String, includes: &[String]) -> String {
+    use std::fs::File;
+    use std::io::Read;
+    let mut file = File::open("src/".to_owned() + &path).unwrap();
+    let mut string = String::new();
+    file.read_to_string(&mut string).unwrap();
+    let mut c = ShaderContext::new();
+    for i in includes {
+        let mut file = File::open("src/".to_owned() + &i).unwrap();
+        let mut string = String::new();
+        file.read_to_string(&mut string).unwrap();
+        c.include(i.clone(), string);
+    }
+    c.expand(string).unwrap()
+}
+
 fn main() {
     use glium::glutin;
     use glium::Surface;
@@ -40,15 +58,8 @@ fn main() {
     let vbuff = glium::VertexBuffer::new(&display, &vertexes).unwrap();
     let indices = glium::index::NoIndices(glium::index::PrimitiveType::TriangleStrip);
 
-    use std::fs::File;
-    use std::io::Read;
-    let mut vfile = File::open("src/vert.glsl").unwrap();
-    let mut vshader = String::new();
-    vfile.read_to_string(&mut vshader).unwrap();
-
-    let mut ffile = File::open("src/frag.glsl").unwrap();
-    let mut fshader = String::new();
-    ffile.read_to_string(&mut fshader).unwrap();
+    let vshader = shader("vert.glsl".to_string(), &[]);
+    let fshader = shader("frag.glsl".to_string(), &["sky.glsl".to_string()]);
 
     let program = glium::Program::from_source(&display, &vshader, &fshader, None).unwrap();
 
@@ -93,9 +104,9 @@ fn main() {
 
     let chunks = chunk::gen_chunks();
     let chunks = chunks.to_uniform();
-    assert_eq!(chunks.chunks[3][3][3], (3 * 16, 3 * 16, 3 * 16));
-    assert_eq!(chunks.chunks[3][1][2], (3 * 16, 1 * 16, 2 * 16));
-    assert_eq!(chunks.chunks[1][2][3], (1 * 16, 2 * 16, 3 * 16));
+    // assert_eq!(chunks.chunks[3][3][3], (3 * 16, 3 * 16, 3 * 16));
+    // assert_eq!(chunks.chunks[3][1][2], (3 * 16, 1 * 16, 2 * 16));
+    // assert_eq!(chunks.chunks[1][2][3], (1 * 16, 2 * 16, 3 * 16));
     let block_buffer = glium::texture::unsigned_texture3d::UnsignedTexture3d::with_format(
         &display,
         chunks.blocks,
