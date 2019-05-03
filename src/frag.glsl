@@ -177,7 +177,7 @@ const float root_size = 16.*2.*2.;
 #endif
 
 // The maximum iterations for voxel traversal
-const int MAX_ITER = 256;
+const int MAX_ITER = 512;
 // -----------------------------------------------------------------------------------------
 
 
@@ -325,27 +325,27 @@ uint getVoxel(ivec3 pos) {
 }
 
 // Regular grid
-bool trace(in vec3 ro, in vec3 rd, out vec2 t, out vec3 pos, out int iter, out float size, out vec3 normal) {
+uint trace(in vec3 ro, in vec3 rd, out vec2 t, out vec3 pos, out int iter, out float size, out vec3 normal) {
     size = 1.0;
 
     ivec3 total_size = textureSize(blocks, 0);
     scene_size = total_size.x;
     float root_size = float(total_size.x) * 0.5;
 
-    pos = chunk_origin + root_size;//vec3(root_size); // Center
-    vec3 tmid, tmax_root, tmax;
+    // pos = chunk_origin + root_size;//vec3(root_size); // Center
+    vec3 tmid,
+        // tmax_root,
+        tmax;
     // We translate it to "grid space" first, so pos = vec3(0) is actually chunk_origin in world coordinates
     vec3 ro_chunk = ro - chunk_origin + root_size;
-    t = isect(pos, root_size*2.0, ro_chunk, rd, tmid, tmax_root);
+    // t = isect(pos, root_size*2.0, ro_chunk, rd, tmid, tmax_root);
     pos = ro_chunk;// + (t.x+0.01) * rd;
     ivec3 ipos = ivec3(floor(pos));
     ivec3 istep = ivec3(sign(rd));
     isect(vec3(ipos) + 0.5, size, ro_chunk, rd, tmid, tmax);
     vec3 tdelta = abs(1.0 / rd);
-    #ifdef DDA
     vec3 sideDist = (sign(rd) * (vec3(ipos) - ro_chunk) + (sign(rd) * 0.5) + 0.5) * tdelta;
     bvec3 mask;
-    #endif
 
     iter = MAX_ITER;
     while (iter --> 0) {
@@ -353,33 +353,19 @@ bool trace(in vec3 ro, in vec3 rd, out vec2 t, out vec3 pos, out int iter, out f
             getVoxel(ipos);
             // texelFetch(chunks, ipos, 0).r;
         if (voxel == 121212)
-            return false;
+            return 0;
         if (voxel != 0) {
             t = isect(vec3(ipos) + 0.5, size, ro_chunk, rd, tmid, tmax);
             normal = vec3(mask);
             pos = vec3(ipos) + 0.5 + chunk_origin - root_size; // Translate it back to world space
-            return true;
+            return voxel;
         }
-        #ifdef DDA
 
         mask = lessThanEqual(sideDist.xyz, min(sideDist.yzx, sideDist.zxy));
         sideDist += vec3(mask) * tdelta;
         ipos += ivec3(mask) * istep;
-        // if (length(sideDist * vec3(mask)) > t.y) { return false; }
-
-        #else
-
-        vec3 mask = tmax.x > tmax.y ?
-            (tmax.x > tmax.z ? vec3(1,0,0) : vec3(0,0,1))
-          : (tmax.y > tmax.z ? vec3(0,1,0) : vec3(0,0,1));
-        tmax += mask * tdelta;
-        ipos += ivec3(mask) * istep;
-
-        if (tmax.x > tmax_root.x || tmax.y > tmax_root.y || tmax.z > tmax_root.z) { return false; }
-
-        #endif
     }
-    return false;
+    return 0;
 }
 
 
@@ -509,8 +495,19 @@ float ao( vec3 v, vec3 n, vec2 tc ) {
 	return 1.0 - filterf( side, corner, tc );
 }
 
+Material mat_lookup(uint mat) {
+    switch(mat)
+    {
+        case 1:
+            return Material(vec3(0.7,0.8,0.8), 0.2);
+        case 2:
+            return Material(vec3(0.3,0.7,0.5),0.9);
+        default:
+            return Material(vec3(1.0,1.0,1.0),1.0);
+    }
+}
 
-vec3 shade(vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos, vec3 mask) {
+vec3 shade(uint m, vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos, vec3 mask) {
     // // The biggest component of intersection_pos - voxel_pos is the normal direction
     // #ifdef MARCH
     // /*
@@ -539,8 +536,9 @@ vec3 shade(vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos, vec3 mask) {
     	(abs(n.y) > abs(n.z) ? vec3(0., 1., 0.) : vec3(0., 0., 1.)));
     // #endif
 
-    Material mat = Material(normalize(abs(n)+abs(pos)+vec3(0.5)), 0.9); // Color from normal+position of voxel
-    mat.base_color = vec3(1.,.9,.7);
+    Material mat = mat_lookup(m);
+    // Material(normalize(abs(n)+abs(pos)+vec3(0.5)), 0.9); // Color from normal+position of voxel
+    // mat.base_color = vec3(1.,.9,.7);
     #if MAT_SAMPLES
     vec3 acc = vec3(0.);
     int j;
@@ -577,7 +575,7 @@ vec3 shade(vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos, vec3 mask) {
         ( fract( p.zx ) * mask.y ) +
         ( fract( p.xy ) * mask.z );
     return (shadow ? vec3(0.3) :
-        ao(pos,n,tc)*0.2*mat.base_color + c*brdf(-lightDir, -rd, n, mat));
+        (0.1+ao(pos,n,tc)*0.2)*mat.base_color + c*brdf(-lightDir, -rd, n, mat));
     #endif
 }
 
@@ -631,7 +629,8 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     int iter;
     vec3 n;
 
-    vec3 col = trace(ro, rd, t, pos, iter, size, n) ? shade(ro, rd, t, iter, pos, n) : sky_cam(ro, -rd);
+    uint mat = trace(ro, rd, t, pos, iter, size, n);
+    vec3 col = mat != 0 ? shade(mat, ro, rd, t, iter, pos, n) : sky_cam(ro, -rd);
     // col = vec3(1.0) * float(iter)/float(MAX_ITER);
 
     fragColor = vec4(col,1.0);

@@ -1,9 +1,11 @@
 #[macro_use]
 extern crate glium;
 extern crate glm;
+extern crate glsl_include;
 extern crate rayon;
 extern crate stopwatch;
-extern crate glsl_include;
+extern crate noise;
+extern crate rand;
 
 use glm::*;
 use glsl_include::Context as ShaderContext;
@@ -11,7 +13,8 @@ use glsl_include::Context as ShaderContext;
 // mod octree;
 // mod terrain;
 mod chunk;
-mod grid;
+mod terrain;
+mod common;
 
 #[derive(Copy, Clone)]
 struct Vertex {
@@ -21,6 +24,13 @@ implement_vertex!(Vertex, pos);
 
 fn vert(x: f32, y: f32) -> Vertex {
     Vertex { pos: [x, y] }
+}
+
+struct FrameState {
+    fb: f32, // * camera_dir
+    lr: f32, // * right
+    ud: f32, // * vec3(0,1,0)
+    m: f32,  // Multiplier for movement speed
 }
 
 const MOVE_SPEED: f32 = 0.01;
@@ -102,33 +112,21 @@ fn main() {
     }*/
     // octree_buffer.write(&octree::to_uniform(octree));
 
-    let chunks = chunk::gen_chunks();
-    let chunks = chunks.to_uniform();
-    // assert_eq!(chunks.chunks[3][3][3], (3 * 16, 3 * 16, 3 * 16));
-    // assert_eq!(chunks.chunks[3][1][2], (3 * 16, 1 * 16, 2 * 16));
-    // assert_eq!(chunks.chunks[1][2][3], (1 * 16, 2 * 16, 3 * 16));
-    let block_buffer = glium::texture::unsigned_texture3d::UnsignedTexture3d::with_format(
-        &display,
-        chunks.blocks,
-        glium::texture::UncompressedUintFormat::U16,
-        glium::texture::MipmapsOption::NoMipmap,
-    )
-    .unwrap();
-    let chunk_buffer = glium::texture::unsigned_texture3d::UnsignedTexture3d::with_format(
-        &display,
-        chunks.chunks,
-        glium::texture::UncompressedUintFormat::U8U8U8,
-        glium::texture::MipmapsOption::NoMipmap,
-    )
-    .unwrap();
-    println!("{:?}", chunk_buffer.get_internal_format());
+    let mut chunk_m = chunk::ChunkManager::new(&display, ivec3(0, 0, 0));
 
     let mut last = timer.elapsed_ms();
-    let mut camera_pos = vec3(0.0, 0.0, 0.0);
+    let mut camera_pos = vec3(0.0, 10.0, 0.0);
+    let mut state = FrameState {
+        fb: 0.0,
+        lr: 0.0,
+        ud: 0.0,
+        m: 1.0,
+    };
     while !closed {
+        chunk_m.update(camera_pos);
         let cur = timer.elapsed_ms();
         let delta = cur - last;
-        println!("FPS: {}", 1000 / delta.max(1));
+        // println!("FPS: {}", 1000 / delta.max(1));
         last = cur;
         let mut target = display.draw();
         target.clear_color(0.0, 0.0, 1.0, 1.0);
@@ -143,7 +141,9 @@ fn main() {
         );
         //let look_at = vec3(0.0, 23.0, 0.0);
         let camera_dir = normalize(look_at - camera_pos);
+        // let camera_dir = vec3(0.0,0.0,1.0);
         let camera_up = vec3(0.0, 1.0, 0.0);
+        let right = cross(camera_dir, camera_up);
         target
             .draw(
                 &vbuff,
@@ -156,9 +156,9 @@ fn main() {
                    cameraPos: *camera_pos.as_array(),
                    cameraDir: *camera_dir.as_array(),
                    cameraUp: *camera_up.as_array(),
-                   chunks: &chunk_buffer,
-                   blocks: &block_buffer,
-                   chunk_origin: [0.0,0.0,0.0_f32],
+                   chunks: chunk_m.chunks_u(),
+                   blocks: chunk_m.blocks_u(),
+                   chunk_origin: chunk_m.origin_u(),
                    // octree: &octree_buffer,
                    levels: 2,
                 },
@@ -183,29 +183,47 @@ fn main() {
                     )
                 }
                 glutin::WindowEvent::KeyboardInput { input, .. } => {
+                    if let glutin::ElementState::Released = input.state {
+                        match input.virtual_keycode {
+                            Some(glutin::VirtualKeyCode::Comma)
+                            | Some(glutin::VirtualKeyCode::O) => {
+                                state.fb = 0.0;
+                            }
+                            Some(glutin::VirtualKeyCode::Space)
+                            | Some(glutin::VirtualKeyCode::LShift) => {
+                                state.ud = 0.0;
+                            }
+                            Some(glutin::VirtualKeyCode::E) | Some(glutin::VirtualKeyCode::A) => {
+                                state.lr = 0.0;
+                            }
+                            Some(glutin::VirtualKeyCode::LControl) => {
+                                state.m = 1.0;
+                            }
+                            _ => (),
+                        }
+                    }
                     if let glutin::ElementState::Pressed = input.state {
                         match input.virtual_keycode {
                             Some(glutin::VirtualKeyCode::Comma) => {
-                                camera_pos = camera_pos
-                                    + vec3(1.0, 0.0, 1.0)
-                                        * camera_dir
-                                        * (delta as f64 * MOVE_SPEED as f64) as f32;
+                                state.fb = 1.0;
                             }
                             Some(glutin::VirtualKeyCode::O) => {
-                                camera_pos = camera_pos
-                                    - vec3(1.0, 0.0, 1.0)
-                                        * camera_dir
-                                        * (delta as f64 * MOVE_SPEED as f64) as f32;
+                                state.fb = -1.0;
                             }
                             Some(glutin::VirtualKeyCode::Space) => {
-                                camera_pos = camera_pos
-                                    + vec3(0.0, 1.0, 0.0)
-                                        * (delta as f64 * MOVE_SPEED as f64) as f32;
+                                state.ud = 1.0;
                             }
-                            Some(glutin::VirtualKeyCode::P) => {
-                                camera_pos = camera_pos
-                                    - vec3(0.0, 1.0, 0.0)
-                                        * (delta as f64 * MOVE_SPEED as f64) as f32;
+                            Some(glutin::VirtualKeyCode::LShift) => {
+                                state.ud = -1.0;
+                            }
+                            Some(glutin::VirtualKeyCode::E) => {
+                                state.lr = 1.0;
+                            }
+                            Some(glutin::VirtualKeyCode::A) => {
+                                state.lr = -1.0;
+                            }
+                            Some(glutin::VirtualKeyCode::LControl) => {
+                                state.m = 4.0;
                             }
                             _ => (),
                         }
@@ -219,5 +237,11 @@ fn main() {
             },*/
             _ => (),
         });
+        camera_pos = camera_pos
+            + (vec3(1.0, 0.0, 1.0) * camera_dir * state.fb
+                + vec3(0.0, 1.0, 0.0) * state.ud
+                + vec3(1.0, 0.0, 1.0) * right * state.lr)
+                * state.m
+                * (delta as f64 * MOVE_SPEED as f64) as f32;
     }
 }
