@@ -92,6 +92,10 @@ impl ChunkManager {
     /// Loads in the next row, page, or column, positive or negative.
     /// Only one component of `dir` should have a value, which should be -1 or 1
     pub fn load(&mut self, dir: IVec3) {
+        // BUG:
+        // Somewhere in this function, we're overwriting a part of self.chunks.chunks that doesn't need to be overwritten,
+        //  with a new chunk generated somewhere else (?)
+
         let mut new_chunks = self.chunks.chunks.clone();
         // Advance the origin
         // print!("Old origin: {:?}", self.origin);
@@ -102,30 +106,39 @@ impl ChunkManager {
         for (z, page) in new_chunks.iter_mut().enumerate() {
             for (y, row) in page.iter_mut().enumerate() {
                 for (x, c) in row.iter_mut().enumerate() {
-                    // let (x, z) = (z, x);
-                    // Where would this chunk be in the _old_ chunks? (- instead of +)
+                    // Where would this chunk be in the _old_ chunks?
                     let p = ivec3(x as i32, y as i32, z as i32) + dir;
                     let n = CHUNK_NUM as i32;
 
                     if p.x >= 0 && p.y >= 0 && p.z >= 0 && p.x < n && p.y < n && p.z < n {
                         // It's in bounds, we already have the blocks for it; just move the offset
                         *c = self.chunks.chunks[p.z as usize][p.y as usize][p.x as usize];
+                        // assert!(self.origin.z != 112 || p.z != 0);
                     } else {
+                        // if self.origin.z == 112 {
+                        //     print!("Old: {:?}, new: ", p);
+                        // }
                         // It's out of bounds, we need to make a new chunk and delete the old one
 
                         // Wrap the coordinates around. If it's `-1`, this will be `CHUNK_NUM-1`;
                         //  if it's `CHUNK_NUM`, this will be `CHUNK_NUM % CHUNK_NUM = 0`.
                         //  And if it's something else, it won't change
                         let p = (p + n) % n;
+                        // if self.origin.z == 112 {
+                        //     println!("{:?}", p);
+                        // }
                         // A now-unoccupied chunk
                         let i = self.chunks.chunks[p.z as usize][p.y as usize][p.x as usize];
                         *c = i;
 
                         // Generate a new chunk and add it to `blocks`
-                        let i = (i.0 as usize, i.1 as usize, i.2 as usize);
+                        let i = (i.2 as usize, i.1 as usize, i.0 as usize);
+                        // let y = if self.origin.z == 112 {
+                        //     0
+                        // } else { y };
                         let new_chunk = self.gen.gen_chunk(
                             // World-space chunk coordinates, in chunks instead of blocks
-                            start + ivec3(x as i32, y as i32, z as i32),
+                            ivec3(start.z,start.y,start.x) + ivec3(z as i32, y as i32, x as i32),
                         );
                         {
                             self.pix_buf.write(
@@ -137,11 +150,12 @@ impl ChunkManager {
                                     .collect::<Vec<Block>>(),
                             );
                             let i = (i.0 as u32, i.1 as u32, i.2 as u32);
+                            let s = CHUNK_SIZE as u32;
                             self.block_buf.main_level().raw_upload_from_pixel_buffer(
                                 self.pix_buf.as_slice(),
-                                i.0..i.0 + CHUNK_SIZE as u32,
-                                i.1..i.1 + CHUNK_SIZE as u32,
-                                i.2..i.2 + CHUNK_SIZE as u32,
+                                i.0..i.0 + s,
+                                i.1..i.1 + s,
+                                i.2..i.2 + s,
                             );
                         }
                         for (z, page) in new_chunk.iter().enumerate() {
@@ -245,19 +259,6 @@ impl Chunks {
             CHUNK_SIZE * CHUNK_NUM
         ];
         for (n, i) in self.chunks.iter().enumerate() {
-            // 2 * 2 * 2
-            // 4 => (0,0,1)
-            // 5 => (1,0,1)
-            // 6 => (0,1,1)
-            // 7 => (1,1,1)
-            // 2 => (0,1,0)
-            // n => (n%2, (n/2)%2, (n/2)/2)
-
-            // 0 1
-            // 2 3
-
-            // 4 5
-            // 6 7
             let p = Self::idx_to_pos(n);
             for (z, row_x) in i.iter().enumerate() {
                 for (y, row_y) in row_x.iter().enumerate() {

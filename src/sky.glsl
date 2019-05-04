@@ -61,11 +61,6 @@ float noise(in vec3 pos) {
     f += 0.0625*noise3( q ); q = m*q*2.01;
     return f;
 }
-/*
-vec3 roundN(vec3 x, float n) {
-    return round(x*n)/n;
-}
-*/
 
 // Whichever is brighter, the sun or the moon
 vec3 major_dir() {

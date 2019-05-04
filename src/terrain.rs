@@ -60,6 +60,6 @@ impl Gen {
     }
 
     fn height(&self, loc: Vector2<f32>) -> f32 {
-        12.0 * self.noise.get(*(to_dvec2(loc) * 0.025).as_array()) as f32
+        12.0 * self.noise.get(*(to_dvec2(loc) * 0.005).as_array()) as f32
     }
 }
