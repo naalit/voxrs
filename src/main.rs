@@ -9,6 +9,7 @@ extern crate rand;
 
 use glm::*;
 use glsl_include::Context as ShaderContext;
+use std::sync::mpsc::*;
 
 // mod octree;
 // mod terrain;
@@ -112,7 +113,8 @@ fn main() {
     }*/
     // octree_buffer.write(&octree::to_uniform(octree));
 
-    let mut chunk_m = chunk::ChunkManager::new(&display, ivec3(0, 0, 0));
+    let mut chunk_m = chunk::ChunkManager::new(ivec3(0, 0, 0));
+    let mut chunk_h = chunk_m.gen_host(&display);
 
     let mut last = timer.elapsed_ms();
     let mut camera_pos = vec3(0.0, 10.0, 0.0);
@@ -122,8 +124,13 @@ fn main() {
         ud: 0.0,
         m: 1.0,
     };
+    let (them_to,from) = channel();
+    let (to,them_from) = channel();
+    let mut origin = chunk_m.origin_u();
+    std::thread::spawn(move || chunk_m.chunk_thread(them_to, them_from));
+    to.send(camera_pos).unwrap();
     while !closed {
-        chunk_m.update(camera_pos);
+        // chunk_m.update(camera_pos);
         let cur = timer.elapsed_ms();
         let delta = cur - last;
         // println!("FPS: {}", 1000 / delta.max(1));
@@ -156,9 +163,9 @@ fn main() {
                    cameraPos: *camera_pos.as_array(),
                    cameraDir: *camera_dir.as_array(),
                    cameraUp: *camera_up.as_array(),
-                   chunks: chunk_m.chunks_u(),
-                   blocks: chunk_m.blocks_u(),
-                   chunk_origin: chunk_m.origin_u(),
+                   chunks: chunk_h.chunks_u(),
+                   blocks: chunk_h.blocks_u(),
+                   chunk_origin: origin,
                    // octree: &octree_buffer,
                    levels: 2,
                 },
@@ -168,6 +175,11 @@ fn main() {
 
         //std::thread::sleep(std::time::Duration::from_millis(100));
         target.finish().unwrap();
+        let cmd = from.try_recv().unwrap_or((None, origin));
+        to.send(camera_pos).unwrap();
+        origin = cmd.1;
+        let cmd = cmd.0;
+        chunk_h.run_cmd_list(cmd);
 
         events_loop.poll_events(|event| match event {
             glutin::Event::WindowEvent { event, .. } => match event {
