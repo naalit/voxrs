@@ -1,251 +1,170 @@
 use super::common::*;
 use super::glm::*;
 use super::terrain::*;
-use glium::backend::Facade;
+// use glium::backend::Facade;
 use std::sync::mpsc::*;
-use std::sync::Arc;
+// use std::sync::Arc;
 
 /// Holds the world, and manages GPU storage and the like
 pub struct ChunkManager {
-    chunks: ChunksU,
+    // chunks: Vec<Vec<Vec<(u8, u8, u8)>>>,
     /// The exact world-space origin point of the chunks
-    origin: IVec3,
+    // origin: IVec3,
     /// The world generator
     gen: Gen,
 }
 
-type CommandList = Option<(Vec<(Arc<Chunk>, (u32,u32,u32))>, Arc<Vec<Vec<Vec<(u8, u8, u8)>>>>)>;
-
-pub struct ChunkHost {
-    /// These two are the buffers for storing a chunk and the chunk map, respectively, to update them
-    pix_buf: glium::texture::pixel_buffer::PixelBuffer<Block>,
-    dpix_buf: glium::texture::pixel_buffer::PixelBuffer<(u8, u8, u8)>,
-    /// The actual textures
-    chunk_buf: glium::texture::unsigned_texture3d::UnsignedTexture3d,
-    block_buf: glium::texture::unsigned_texture3d::UnsignedTexture3d,
-}
-
-impl ChunkHost {
-    pub fn new<F: Facade + ?Sized>(f: &F, chunks: &ChunksU) -> Self {
-        let block_buf = glium::texture::unsigned_texture3d::UnsignedTexture3d::with_format(
-            f,
-            chunks.blocks.clone(),
-            glium::texture::UncompressedUintFormat::U16,
-            glium::texture::MipmapsOption::NoMipmap,
-        )
-        .unwrap();
-        let chunk_buf = glium::texture::unsigned_texture3d::UnsignedTexture3d::with_format(
-            f,
-            chunks.chunks.clone(),
-            glium::texture::UncompressedUintFormat::U8U8U8,
-            glium::texture::MipmapsOption::NoMipmap,
-        )
-        .unwrap();
-        ChunkHost {
-            pix_buf: glium::texture::pixel_buffer::PixelBuffer::new_empty(
-                f,
-                CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE,
-            ),
-            dpix_buf: glium::texture::pixel_buffer::PixelBuffer::new_empty(
-                f,
-                CHUNK_NUM * CHUNK_NUM * CHUNK_NUM,
-            ),
-            chunk_buf,
-            block_buf,
-        }
-    }
-
-    pub fn run_cmd_list(&mut self, l: CommandList) {
-        if let Some(l) = l {
-            for i in l.0 {
-                self.pix_buf.write(
-                    &i.0
-                        .iter()
-                        .flat_map(|x| x.iter())
-                        .flat_map(|x| x.iter())
-                        .cloned()
-                        .collect::<Vec<Block>>(),
-                );
-                let i = i.1;
-                let s = CHUNK_SIZE as u32;
-                self.block_buf.main_level().raw_upload_from_pixel_buffer(
-                    self.pix_buf.as_slice(),
-                    i.0..i.0 + s,
-                    i.1..i.1 + s,
-                    i.2..i.2 + s,
-                );
-            }
-            self.dpix_buf.write(
-                &l.1
-                    .iter()
-                    .flat_map(|x| x.iter())
-                    .flat_map(|x| x.iter())
-                    .cloned()
-                    .collect::<Vec<(u8, u8, u8)>>(),
-            );
-            self.chunk_buf.main_level().raw_upload_from_pixel_buffer(
-                self.dpix_buf.as_slice(),
-                0..CHUNK_NUM as u32,
-                0..CHUNK_NUM as u32,
-                0..CHUNK_NUM as u32,
-            );
-        }
-
-    }
-
-    pub fn chunks_u(&self) -> &glium::texture::unsigned_texture3d::UnsignedTexture3d {
-        &self.chunk_buf
-    }
-    pub fn blocks_u(&self) -> &glium::texture::unsigned_texture3d::UnsignedTexture3d {
-        &self.block_buf
-    }
-}
-
 impl ChunkManager {
-    pub fn chunk_thread(mut self, to: Sender<(CommandList, [f32; 3])>, from: Receiver<Vec3>) {
+    pub fn chunk_thread(self, to: Sender<Message>, from: Receiver<Message>) {
         loop {
             let p = from.recv();
             if let Ok(p) = p {
-                let c = self.update(p);
-                to.send((c,self.origin_u())).unwrap();
+                match p {
+                    Message::LoadChunks(locs) => {
+                        let mut chunks = Vec::new();
+                        for l in locs {
+                            chunks.push((l,self.gen.gen_chunk(l)));
+                        }
+                        to.send(Message::Chunks(chunks)).unwrap();
+                    }
+                    Message::UnloadChunks(_) => {
+                        // TODO
+                    }
+                    _ => ()
+                }
             } else { break; }
         }
     }
 
-    pub fn gen_host<F: Facade + ?Sized>(&self, f: &F) -> ChunkHost {
-        ChunkHost::new(f, &self.chunks)
-    }
+    // pub fn gen_host<F: Facade + ?Sized>(&self, f: &F) -> ChunkHost {
+    //     ChunkHost::new(f, &self.chunks)
+    // }
 
     /// Create a new ChunkManager. `chunks` are the starting chunks, already generated or loaded
-    pub fn new(origin: IVec3) -> Self {
+    pub fn new() -> Self {
         let gen = Gen::new();
-        let chunks = gen.gen_chunks();
-        let chunks = chunks.to_uniform();
+        // let chunks = gen.gen_chunks();
+        // let chunks = chunks.to_uniform().chunks;
         ChunkManager {
-            chunks,
-            origin,
+            // chunks,
+            // origin,
             gen,
         }
     }
 
-    /// Get the origin as an array, for passing it to the shader (_u_niform)
-    pub fn origin_u(&self) -> [f32; 3] {
-        *to_vec3(self.origin).as_array()
-    }
+    // /// Convert world-space coordinates to chunk-space
+    // pub fn world_to_chunk(&self, world: IVec3) -> UVec3 {
+    //     to_uvec3(world - self.origin + (CHUNK_NUM * CHUNK_SIZE / 2) as i32)
+    // }
+    //
+    // /// Convert chunk-space coordinates to world-space
+    // pub fn chunk_to_world(&self, chunk: UVec3) -> IVec3 {
+    //     to_ivec3(chunk) + self.origin - (CHUNK_NUM * CHUNK_SIZE / 2) as i32
+    // }
 
-    /// Convert world-space coordinates to chunk-space
-    pub fn world_to_chunk(&self, world: IVec3) -> UVec3 {
-        to_uvec3(world - self.origin + (CHUNK_NUM * CHUNK_SIZE / 2) as i32)
-    }
+    // / Add one block
+    // / Note: Coordinates are in chunk space!
+    // pub fn add(&mut self, loc: UVec3, block: Block) {
+    //     let chunk = loc / CHUNK_SIZE as u32;
+    //     let in_chunk = loc % CHUNK_SIZE as u32;
+    //     let offset = self.chunks.chunks[chunk.z as usize][chunk.y as usize][chunk.x as usize];
+    //     let x = offset.0 as usize + in_chunk.x as usize;
+    //     let y = offset.1 as usize + in_chunk.y as usize;
+    //     let z = offset.2 as usize + in_chunk.z as usize;
+    //     self.chunks.blocks[z][y][x] = block;
+    // }
 
-    /// Convert chunk-space coordinates to world-space
-    pub fn chunk_to_world(&self, chunk: UVec3) -> IVec3 {
-        to_ivec3(chunk) + self.origin - (CHUNK_NUM * CHUNK_SIZE / 2) as i32
-    }
-
-    /// Add one block
-    /// Note: Coordinates are in chunk space!
-    pub fn add(&mut self, loc: UVec3, block: Block) {
-        let chunk = loc / CHUNK_SIZE as u32;
-        let in_chunk = loc % CHUNK_SIZE as u32;
-        let offset = self.chunks.chunks[chunk.z as usize][chunk.y as usize][chunk.x as usize];
-        let x = offset.0 as usize + in_chunk.x as usize;
-        let y = offset.1 as usize + in_chunk.y as usize;
-        let z = offset.2 as usize + in_chunk.z as usize;
-        self.chunks.blocks[z][y][x] = block;
-    }
-
-    /// Loads in the next row, page, or column, positive or negative.
-    /// Only one component of `dir` should have a value, which should be -1 or 1
-    pub fn load(&mut self, dir: IVec3) -> CommandList {
-        let mut chunks_load = Vec::new();
-        let mut new_chunks = self.chunks.chunks.clone();
-        // Advance the origin
-        // print!("Old origin: {:?}", self.origin);
-        self.origin = self.origin + dir * CHUNK_SIZE as i32;
-        // World-space chunk coordinates, in chunks instead of blocks
-        let start = self.origin / CHUNK_SIZE as i32 - CHUNK_NUM as i32 / 2;
-        // println!("New origin: {:?}", self.origin);
-        for (z, page) in new_chunks.iter_mut().enumerate() {
-            for (y, row) in page.iter_mut().enumerate() {
-                for (x, c) in row.iter_mut().enumerate() {
-                    // Where would this chunk be in the _old_ chunks?
-                    let p = ivec3(x as i32, y as i32, z as i32) + dir;
-                    let n = CHUNK_NUM as i32;
-
-                    if p.x >= 0 && p.y >= 0 && p.z >= 0 && p.x < n && p.y < n && p.z < n {
-                        // It's in bounds, we already have the blocks for it; just move the offset
-                        *c = self.chunks.chunks[p.z as usize][p.y as usize][p.x as usize];
-                        // assert!(self.origin.z != 112 || p.z != 0);
-                    } else {
-                        // if self.origin.z == 112 {
-                        //     print!("Old: {:?}, new: ", p);
-                        // }
-                        // It's out of bounds, we need to make a new chunk and delete the old one
-
-                        // Wrap the coordinates around. If it's `-1`, this will be `CHUNK_NUM-1`;
-                        //  if it's `CHUNK_NUM`, this will be `CHUNK_NUM % CHUNK_NUM = 0`.
-                        //  And if it's something else, it won't change
-                        let p = (p + n) % n;
-                        // if self.origin.z == 112 {
-                        //     println!("{:?}", p);
-                        // }
-                        // A now-unoccupied chunk
-                        let i = self.chunks.chunks[p.z as usize][p.y as usize][p.x as usize];
-                        *c = i;
-
-                        // Generate a new chunk and add it to `blocks`
-                        let i = (i.2 as usize, i.1 as usize, i.0 as usize);
-                        // let y = if self.origin.z == 112 {
-                        //     0
-                        // } else { y };
-                        let new_chunk = self.gen.gen_chunk(
-                            // World-space chunk coordinates, in chunks instead of blocks
-                            ivec3(start.z,start.y,start.x) + ivec3(z as i32, y as i32, x as i32),
-                        );
-                        chunks_load.push((Arc::from(new_chunk),(i.0 as u32, i.1 as u32, i.2 as u32)));
-                        for (z, page) in new_chunk.iter().enumerate() {
-                            for (y, row) in page.iter().enumerate() {
-                                for (x, b) in row.iter().enumerate() {
-                                    self.chunks.blocks[i.2 + z][i.1 + y][i.0 + x] = *b;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        let z = Arc::from(new_chunks.clone());
-        self.chunks.chunks = new_chunks;
-        Some((
-            chunks_load,
-            z,
-        ))
-    }
-
-    /// Loads in new chunks if necessary, given the player position
-    pub fn update(&mut self, player: Vec3) -> CommandList {
-        let diff = player - to_vec3(self.origin);
-        let t = CHUNK_SIZE as f32 * 0.5;
-        // Has the player gone more than half a chunk away from the origin (ie, left the chunk)?
-        if abs(diff.x) > t || abs(diff.y) > t || abs(diff.z) > t {
-            let dir = if abs(diff.x) > abs(diff.y) {
-                if abs(diff.x) > abs(diff.z) {
-                    ivec3(sign(diff.x) as i32, 0, 0)
-                } else {
-                    ivec3(0, 0, sign(diff.z) as i32)
-                }
-            } else {
-                if abs(diff.y) > abs(diff.z) {
-                    ivec3(0, sign(diff.y) as i32, 0)
-                } else {
-                    ivec3(0, 0, sign(diff.z) as i32)
-                }
-            };
-            // println!("Loading new chunk in direction {:?}", dir);
-            self.load(dir)
-        } else { None }
-    }
+    // / Loads in the next row, page, or column, positive or negative.
+    // / Only one component of `dir` should have a value, which should be -1 or 1
+    // pub fn load(&mut self, dir: IVec3) -> CommandList {
+    //     let mut chunks_load = Vec::new();
+    //     let mut new_chunks = self.chunks.clone();
+    //     // Advance the origin
+    //     // print!("Old origin: {:?}", self.origin);
+    //     self.origin = self.origin + dir * CHUNK_SIZE as i32;
+    //     // World-space chunk coordinates, in chunks instead of blocks
+    //     let start = self.origin / CHUNK_SIZE as i32 - CHUNK_NUM as i32 / 2;
+    //     // println!("New origin: {:?}", self.origin);
+    //     for (z, page) in new_chunks.iter_mut().enumerate() {
+    //         for (y, row) in page.iter_mut().enumerate() {
+    //             for (x, c) in row.iter_mut().enumerate() {
+    //                 // Where would this chunk be in the _old_ chunks?
+    //                 let p = ivec3(x as i32, y as i32, z as i32) + dir;
+    //                 let n = CHUNK_NUM as i32;
+    //
+    //                 if p.x >= 0 && p.y >= 0 && p.z >= 0 && p.x < n && p.y < n && p.z < n {
+    //                     // It's in bounds, we already have the blocks for it; just move the offset
+    //                     *c = self.chunks[p.z as usize][p.y as usize][p.x as usize];
+    //                     // assert!(self.origin.z != 112 || p.z != 0);
+    //                 } else {
+    //                     // if self.origin.z == 112 {
+    //                     //     print!("Old: {:?}, new: ", p);
+    //                     // }
+    //                     // It's out of bounds, we need to make a new chunk and delete the old one
+    //
+    //                     // Wrap the coordinates around. If it's `-1`, this will be `CHUNK_NUM-1`;
+    //                     //  if it's `CHUNK_NUM`, this will be `CHUNK_NUM % CHUNK_NUM = 0`.
+    //                     //  And if it's something else, it won't change
+    //                     let p = (p + n) % n;
+    //                     // if self.origin.z == 112 {
+    //                     //     println!("{:?}", p);
+    //                     // }
+    //                     // A now-unoccupied chunk
+    //                     let i = self.chunks[p.z as usize][p.y as usize][p.x as usize];
+    //                     *c = i;
+    //
+    //                     // Generate a new chunk and add it to `blocks`
+    //                     let i = (i.2 as usize, i.1 as usize, i.0 as usize);
+    //                     // let y = if self.origin.z == 112 {
+    //                     //     0
+    //                     // } else { y };
+    //                     let new_chunk = self.gen.gen_chunk(
+    //                         // World-space chunk coordinates, in chunks instead of blocks
+    //                         ivec3(start.z,start.y,start.x) + ivec3(z as i32, y as i32, x as i32),
+    //                     );
+    //                     chunks_load.push((Arc::from(new_chunk),(i.0 as u32, i.1 as u32, i.2 as u32)));
+    //                     // for (z, page) in new_chunk.iter().enumerate() {
+    //                     //     for (y, row) in page.iter().enumerate() {
+    //                     //         for (x, b) in row.iter().enumerate() {
+    //                     //             self.chunks.blocks[i.2 + z][i.1 + y][i.0 + x] = *b;
+    //                     //         }
+    //                     //     }
+    //                     // }
+    //                 }
+    //             }
+    //         }
+    //     }
+    //     let z = Arc::from(new_chunks.clone());
+    //     self.chunks = new_chunks;
+    //     Some((
+    //         chunks_load,
+    //         z,
+    //     ))
+    // }
+    //
+    // /// Loads in new chunks if necessary, given the player position
+    // pub fn update(&mut self, player: Vec3) -> CommandList {
+    //     let diff = player - to_vec3(self.origin);
+    //     let t = CHUNK_SIZE as f32 * 0.5;
+    //     // Has the player gone more than half a chunk away from the origin (ie, left the chunk)?
+    //     if abs(diff.x) > t || abs(diff.y) > t || abs(diff.z) > t {
+    //         let dir = if abs(diff.x) > abs(diff.y) {
+    //             if abs(diff.x) > abs(diff.z) {
+    //                 ivec3(sign(diff.x) as i32, 0, 0)
+    //             } else {
+    //                 ivec3(0, 0, sign(diff.z) as i32)
+    //             }
+    //         } else {
+    //             if abs(diff.y) > abs(diff.z) {
+    //                 ivec3(0, sign(diff.y) as i32, 0)
+    //             } else {
+    //                 ivec3(0, 0, sign(diff.z) as i32)
+    //             }
+    //         };
+    //         // println!("Loading new chunk in direction {:?}", dir);
+    //         self.load(dir)
+    //     } else { None }
+    // }
 }
 
 pub struct Chunks {
