@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use super::common::*;
 use super::glm::*;
 use super::terrain::*;
@@ -199,9 +200,9 @@ impl Chunks {
     fn idx_to_pos(n: usize) -> (usize, usize, usize) {
         let q = n / CHUNK_NUM;
         (
-            CHUNK_SIZE * (q / CHUNK_NUM),
-            CHUNK_SIZE * (q % CHUNK_NUM),
-            CHUNK_SIZE * (n % CHUNK_NUM),
+            (q / CHUNK_NUM),
+            (q % CHUNK_NUM),
+            (n % CHUNK_NUM),
         )
     }
 
@@ -220,7 +221,7 @@ impl Chunks {
                 for (y, row_y) in row_x.iter().enumerate() {
                     for (x, b) in row_y.iter().enumerate() {
                         // assert!(p.0 <= s*CHUNK_SIZE - CHUNK_SIZE, "{}", p.0);
-                        c.blocks[p.2 + z][p.1 + y][p.0 + x] = *b;
+                        c.blocks[p.2*CHUNK_SIZE + z][p.1*CHUNK_SIZE + y][p.0*CHUNK_SIZE + x] = *b;
                     }
                 }
             }
@@ -236,6 +237,42 @@ impl Chunks {
             }
         }
         c
+    }
+
+    /// Keeps the original chunks, storing them with their offsets in a HashMap
+    pub fn to_uniform_plus(&self) -> (ChunksU,HashMap<(u8,u8,u8),Chunk>) {
+        let mut c = ChunksU::new();
+        let mut m = HashMap::new();
+        // let s = (self.chunks.len() as f32).cbrt() as usize;
+        // assert_eq!(s, CHUNK_NUM);
+        // assert_eq!(self.chunks.len(), CHUNK_NUM*CHUNK_NUM*CHUNK_NUM);
+        c.blocks = vec![
+            vec![vec![0; CHUNK_SIZE * CHUNK_NUM]; CHUNK_SIZE * CHUNK_NUM];
+            CHUNK_SIZE * CHUNK_NUM
+        ];
+        for (n, i) in self.chunks.iter().enumerate() {
+            let p = Self::idx_to_pos(n);
+            for (z, row_x) in i.iter().enumerate() {
+                for (y, row_y) in row_x.iter().enumerate() {
+                    for (x, b) in row_y.iter().enumerate() {
+                        // assert!(p.0 <= s*CHUNK_SIZE - CHUNK_SIZE, "{}", p.0);
+                        c.blocks[p.2*CHUNK_SIZE + z][p.1*CHUNK_SIZE + y][p.0*CHUNK_SIZE + x] = *b;
+                    }
+                }
+            }
+        }
+        c.chunks = vec![vec![vec![(0, 0, 0); CHUNK_NUM]; CHUNK_NUM]; CHUNK_NUM];
+        for (z, row_x) in self.map.iter().enumerate() {
+            for (y, row_y) in row_x.iter().enumerate() {
+                for (x, &n) in row_y.iter().enumerate() {
+                    let p = Self::idx_to_pos(n);
+                    let p = (p.0 as u8, p.1 as u8, p.2 as u8);
+                    m.insert((p.2,p.1,p.0), self.chunks[n]);
+                    c.chunks[z][y][x] = p;
+                }
+            }
+        }
+    (c,m)
     }
 }
 

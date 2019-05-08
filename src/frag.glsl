@@ -321,7 +321,7 @@ uint getVoxel(ivec3 pos) {
     uvec3 offset = texelFetch(chunks, chunk, 0).zyx;
     // return uint(ivec3(offset) == chunk*CHUNK_SIZE);
     // return uint((ivec3(offset) - chunk*CHUNK_SIZE).x < -32);
-    return texelFetch(blocks, ivec3(offset) + in_chunk, 0);
+    return texelFetch(blocks, ivec3(offset)*CHUNK_SIZE + in_chunk, 0);
 }
 
 // Regular grid
@@ -618,7 +618,7 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     vec3 up = cameraUp; //vec3(0.,1.,0.);
     vec3 right = normalize(cross(cameraDir, cameraUp)); // Might be right
     vec3 rd = cameraDir;
-    float FOV = 0.5; // Not actual FOV, just a multiplier
+    float FOV = 1.0; // Not actual FOV, just a multiplier
     rd += FOV * up * uv.y;
     rd += FOV * right * uv.x;
     rd = normalize(rd);

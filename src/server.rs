@@ -1,31 +1,31 @@
-use glm::*;
-use glium::backend::Facade;
 use super::chunk::*;
+use super::client::*;
 use super::common::*;
+use glium::backend::Facade;
+use glm::*;
 use std::collections::HashMap;
 use std::sync::mpsc::*;
 use std::sync::Arc;
-use super::client::*;
 
 // #[derive(Clone)]
 pub struct PlayerData {
     pos: Vec3,
     chunks: Vec<Vec<Vec<(u8, u8, u8)>>>,
-    channel: (Sender<CommandList>,Receiver<Vec3>),
+    channel: (Sender<CommandList>, Receiver<Vec3>),
 }
 
 pub struct Server {
     chunk_map: HashMap<[i32; 3], Chunk>,
     ref_map: HashMap<[i32; 3], u32>,
     players: Vec<PlayerData>,
-    chunk_man: (Sender<Message>,Receiver<Message>),
+    chunk_man: (Sender<Message>, Receiver<Message>),
 }
 
 impl Server {
     pub fn new() -> Self {
         let chunk_man = ChunkManager::new();
-        let (them_to,from) = channel();
-        let (to,them_from) = channel();
+        let (them_to, from) = channel();
+        let (to, them_from) = channel();
         std::thread::spawn(move || chunk_man.chunk_thread(them_to, them_from));
         Server {
             chunk_map: HashMap::new(),
@@ -37,19 +37,23 @@ impl Server {
 
     pub fn add_player(&mut self, pos: Vec3) -> Client {
         let chunk_pos = chunk(pos);
+        let chunk_pos = ivec3(chunk_pos.z,chunk_pos.y,chunk_pos.x);
         let start = chunk_pos - CHUNK_NUM as i32 / 2;
         let chunk_locs = (0..CHUNK_NUM as i32)
-            .flat_map(|x| (0..CHUNK_NUM as i32).map(move |y| ivec2(x,y)))
-            .flat_map(|xy| (0..CHUNK_NUM as i32).map(move |z| ivec3(xy.x,xy.y,z)))
+            .flat_map(|x| (0..CHUNK_NUM as i32).map(move |y| ivec2(x, y)))
+            .flat_map(|xy| (0..CHUNK_NUM as i32).map(move |z| ivec3(xy.x, xy.y, z)))
             .map(|x| start + x)
             .filter(|x| !self.chunk_map.contains_key(x.as_array()))
             .collect();
-        self.chunk_man.0.send(Message::LoadChunks(chunk_locs)).unwrap();
+        self.chunk_man
+            .0
+            .send(Message::LoadChunks(chunk_locs))
+            .unwrap();
         let chunks = self.chunk_man.1.recv().unwrap();
         if let Message::Chunks(chunks) = chunks {
-            for (l,c) in chunks {
-                self.chunk_map.insert(*l.as_array(),c);
-                self.ref_map.insert(*l.as_array(),0);
+            for (l, c) in chunks {
+                self.chunk_map.insert(*l.as_array(), c);
+                self.ref_map.insert(*l.as_array(), 0);
             }
         }
         let mut chunks = Chunks::new();
@@ -65,16 +69,16 @@ impl Server {
                 }
             }
         }
-        let chunks = chunks.to_uniform();
-        let (to,from_them) = channel();
-        let (to_them,from) = channel();
+        let (chunks, chunks_new) = chunks.to_uniform_plus();
+        let (to, from_them) = channel();
+        let (to_them, from) = channel();
         let p = PlayerData {
             pos,
             chunks: chunks.chunks.clone(),
-            channel: (to,from),
+            channel: (to, from),
         };
         self.players.push(p);
-        Client::new(&chunks, pos, (to_them,from_them))
+        Client::new(&chunks, chunks_new, pos, (to_them, from_them))
     }
 
     pub fn update(&mut self, old_pos: Vec3, new_pos: Vec3, player: &mut PlayerData) {
@@ -94,18 +98,22 @@ impl Server {
             // self.origin = self.origin + dir * CHUNK_SIZE as i32;
             // World-space chunk coordinates, in chunks instead of blocks
             let start = new_chunk - CHUNK_NUM as i32 / 2;
-            let start = ivec3(start.z,start.y,start.x);
+            let start = ivec3(start.z, start.y, start.x);
             let start_old = old_chunk - CHUNK_NUM as i32 / 2;
-            let start_old = ivec3(start_old.z,start_old.y,start_old.x);
-
+            let start_old = ivec3(start_old.z, start_old.y, start_old.x);
 
             (0..CHUNK_NUM as i32)
-                .flat_map(|x| (0..CHUNK_NUM as i32).map(move |y| ivec2(x,y)))
-                .flat_map(|xy| (0..CHUNK_NUM as i32).map(move |z| ivec3(xy.x,xy.y,z)))
+                .flat_map(|x| (0..CHUNK_NUM as i32).map(move |y| ivec2(x, y)))
+                .flat_map(|xy| (0..CHUNK_NUM as i32).map(move |z| ivec3(xy.x, xy.y, z)))
                 .map(|x| start_old + x)
-                .filter(|x| { let d = *x - start; d.min() < 0 || d.max() >= CHUNK_NUM as i32 } )
+                .filter(|x| {
+                    let d = *x - start;
+                    d.min() < 0 || d.max() >= CHUNK_NUM as i32
+                })
                 .for_each(|x| {
-                    *self.ref_map.get_mut(x.as_array()).unwrap() -= 1;
+                    self.ref_map
+                        .get_mut(x.as_array())
+                        .map_or_else(|| panic!("Error: tried to unload chunk that wasn't loaded!"), |x| *x -= 1);
                 });
 
             for (z, page) in new_chunks.iter_mut().enumerate() {
@@ -138,33 +146,41 @@ impl Server {
                             let new_chunk =
                                 // World-space chunk coordinates, in chunks instead of blocks
                                 start + ivec3(z as i32, y as i32, x as i32);
-                            chunks_load.push((new_chunk,(i.0 as u32, i.1 as u32, i.2 as u32)));
+                            chunks_load.push((new_chunk, (i.0 as u32, i.1 as u32, i.2 as u32)));
                         }
                     }
                 }
             }
 
-            self.chunk_man.0.send(Message::LoadChunks(chunks_load.iter().map(|x|x.0).collect())).unwrap();
+            self.chunk_man
+                .0
+                .send(Message::LoadChunks(
+                    chunks_load.iter().map(|x| x.0).collect(),
+                ))
+                .unwrap();
             let chunks = self.chunk_man.1.recv().unwrap();
             if let Message::Chunks(chunks) = chunks {
-                for (l,c) in chunks {
-                    self.chunk_map.insert(*l.as_array(),c);
-                    self.ref_map.insert(*l.as_array(),0);
+                for (l, c) in chunks {
+                    self.chunk_map.insert(*l.as_array(), c);
+                    self.ref_map.insert(*l.as_array(), 0);
                 }
             }
 
-            let chunks_load = chunks_load.into_iter().map(|(l,o)| {
-                *self.ref_map.get_mut(l.as_array()).unwrap() += 1;
-                (self.chunk_map[l.as_array()].clone(),o)
-            }).collect();
+            let chunks_load = chunks_load
+                .into_iter()
+                .map(|(l, o)| {
+                    *self.ref_map.get_mut(l.as_array()).unwrap() += 1;
+                    (self.chunk_map[l.as_array()].clone(), o)
+                })
+                .collect();
 
             // let z = Arc::from(new_chunks.clone());
             player.chunks = new_chunks.clone();
-            player.channel.0.send(CommandList(
-                chunks_load,
-                new_chunks,
-                new_chunk,
-            )).unwrap();
+            player
+                .channel
+                .0
+                .send(CommandList(chunks_load, new_chunks, new_chunk))
+                .unwrap();
         }
     }
 
@@ -182,7 +198,7 @@ impl Server {
             while let Ok(x) = i.channel.1.try_recv() {
                 p = x;
             }
-            self.update(i.pos,p,i);
+            self.update(i.pos, p, i);
             i.pos = p;
         }
         self.players = p;
@@ -190,17 +206,20 @@ impl Server {
 
         // Unload unneeded chunks
         let mut chunks_unload = Vec::new();
-        for (l,r) in self.ref_map.iter() {
+        for (l, r) in self.ref_map.iter() {
             if *r <= 0 {
-                if let Some((l,c)) = self.chunk_map.remove_entry(l) {
-                    chunks_unload.push((*IVec3::from_array(&l),c));
+                if let Some((l, c)) = self.chunk_map.remove_entry(l) {
+                    chunks_unload.push((*IVec3::from_array(&l), c));
                 }
             }
         }
         // We removed them from the chunk_map, now remove them from the ref_map
-        self.ref_map.retain(|_k,v| *v > 0);
+        self.ref_map.retain(|_k, v| *v > 0);
         if !chunks_unload.is_empty() {
-            self.chunk_man.0.send(Message::UnloadChunks(chunks_unload)).unwrap();
+            self.chunk_man
+                .0
+                .send(Message::UnloadChunks(chunks_unload))
+                .unwrap();
         }
     }
 }

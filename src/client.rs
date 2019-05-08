@@ -1,15 +1,19 @@
-use glium::backend::Facade;
-use super::common::*;
 use super::chunk::*;
-use std::sync::mpsc::*;
+use super::common::*;
+use glium::backend::Facade;
 use glium::*;
 use glsl_include::Context as ShaderContext;
+use std::collections::HashMap;
+use std::sync::mpsc::*;
 
 struct FrameState {
-    fb: f32, // * camera_dir
-    lr: f32, // * right
-    ud: f32, // * vec3(0,1,0)
-    m: f32,  // Multiplier for movement speed
+    fb: f32,   // * camera_dir
+    lr: f32,   // * right
+    ud: f32,   // * vec3(0,1,0)
+    m: f32,    // Multiplier for movement speed
+    jump: f32, // Jump counter
+    fly: bool,
+    try_jump: bool,
 }
 impl FrameState {
     fn new() -> Self {
@@ -18,6 +22,9 @@ impl FrameState {
             lr: 0.0,
             ud: 0.0,
             m: 1.0,
+            jump: 0.0,
+            fly: false,
+            try_jump: false,
         }
     }
 }
@@ -57,7 +64,11 @@ pub struct Client {
     /// The actual textures
     chunk_buf: glium::texture::unsigned_texture3d::UnsignedTexture3d,
     block_buf: glium::texture::unsigned_texture3d::UnsignedTexture3d,
+    /// Local storage of chunks for player physics
+    map: Vec<Vec<Vec<(u8, u8, u8)>>>,
+    chunks: HashMap<(u8, u8, u8), Chunk>,
 
+    /// We only keep these since we need to initialize them in the `Client::new`
     events_loop: Option<glutin::EventsLoop>,
     display: Display,
 
@@ -68,8 +79,13 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(chunks: &ChunksU, pos: Vec3, channel: (Sender<Vec3>, Receiver<CommandList>)) -> Self {
-        let mut events_loop = glutin::EventsLoop::new();
+    pub fn new(
+        chunks: &ChunksU,
+        chunks_new: HashMap<(u8, u8, u8), Chunk>,
+        pos: Vec3,
+        channel: (Sender<Vec3>, Receiver<CommandList>),
+    ) -> Self {
+        let events_loop = glutin::EventsLoop::new();
         let wb = glutin::WindowBuilder::new().with_title("Vox.rs");
         let cb = glutin::ContextBuilder::new().with_vsync(true);
         let display = glium::Display::new(wb, cb, &events_loop).unwrap();
@@ -93,6 +109,8 @@ impl Client {
             glium::texture::MipmapsOption::NoMipmap,
         )
         .unwrap();
+        let map = chunks.chunks.clone();
+
         Client {
             pix_buf: glium::texture::pixel_buffer::PixelBuffer::new_empty(
                 &display,
@@ -105,6 +123,9 @@ impl Client {
             chunk_buf,
             block_buf,
 
+            map,
+            chunks: chunks_new,
+
             events_loop: Some(events_loop),
             display,
 
@@ -115,19 +136,38 @@ impl Client {
         }
     }
 
+    pub fn get_block(&self, pos: Vec3) -> u16 {
+        let chunk = chunk(pos) - self.origin + CHUNK_NUM as i32 / 2;
+        let in_chunk = in_chunk(pos);
+        let offset = self.map[chunk.z as usize][chunk.y as usize][chunk.x as usize];
+        self.chunks[&offset][in_chunk.z as usize][in_chunk.y as usize][in_chunk.x as usize]
+    }
+
+    pub fn can_move(&self, new_pos: Vec3) -> bool {
+        [new_pos]
+            .iter()
+            .flat_map(|x| vec![*x + vec3(0.0, 0.5, 0.0), *x - vec3(0.0, 1.5, 0.0)])
+            .flat_map(|x| vec![x + vec3(0.4, 0.0, 0.0), x - vec3(0.4, 0.0, 0.0)])
+            .flat_map(|x| vec![x + vec3(0.0, 0.0, 0.4), x - vec3(0.0, 0.0, 0.4)])
+            .map(|x| self.get_block(x))
+            .all(|x| x == 0)
+    }
+
     pub fn run_cmd_list(&mut self, l: CommandList) {
         self.origin = l.2;
         for i in l.0 {
             self.pix_buf.write(
-                &i.0
-                    .iter()
+                &i.0.iter()
                     .flat_map(|x| x.iter())
                     .flat_map(|x| x.iter())
                     .cloned()
                     .collect::<Vec<Block>>(),
             );
+            self.chunks
+                .insert(((i.1).2 as u8, (i.1).1 as u8, (i.1).0 as u8), i.0);
             let i = i.1;
             let s = CHUNK_SIZE as u32;
+            let i = (i.0 * s, i.1 * s, i.2 * s);
             self.block_buf.main_level().raw_upload_from_pixel_buffer(
                 self.pix_buf.as_slice(),
                 i.0..i.0 + s,
@@ -136,8 +176,7 @@ impl Client {
             );
         }
         self.dpix_buf.write(
-            &l.1
-                .iter()
+            &l.1.iter()
                 .flat_map(|x| x.iter())
                 .flat_map(|x| x.iter())
                 .cloned()
@@ -149,6 +188,7 @@ impl Client {
             0..CHUNK_NUM as u32,
             0..CHUNK_NUM as u32,
         );
+        self.map = l.1;
     }
 
     pub fn game_loop(&mut self) {
@@ -171,9 +211,8 @@ impl Client {
             * 60.0 // Seconds
             ;
 
-
         let mut closed = false;
-        let mut mouse = vec2(0.0,0.0);
+        let mut mouse = vec2(0.0, 0.0);
         let mut m_down = false;
         let timer = stopwatch::Stopwatch::start_new();
         let mut last = timer.elapsed_ms();
@@ -192,7 +231,7 @@ impl Client {
 
             let look_at = vec3(
                 self.pos.x + 5.0 * (0.5 * r).sin(),
-                self.pos.y + 6.0 * mouse.y / res.y,
+                self.pos.y + 12.0 * mouse.y / res.y,
                 self.pos.z + 5.0 * (0.5 * r).cos(),
             );
 
@@ -225,11 +264,15 @@ impl Client {
                                 | Some(glutin::VirtualKeyCode::LShift) => {
                                     self.state.ud = 0.0;
                                 }
-                                Some(glutin::VirtualKeyCode::E) | Some(glutin::VirtualKeyCode::A) => {
+                                Some(glutin::VirtualKeyCode::E)
+                                | Some(glutin::VirtualKeyCode::A) => {
                                     self.state.lr = 0.0;
                                 }
                                 Some(glutin::VirtualKeyCode::LControl) => {
                                     self.state.m = 1.0;
+                                }
+                                Some(glutin::VirtualKeyCode::U) => {
+                                    self.state.fly = !self.state.fly;
                                 }
                                 _ => (),
                             }
@@ -244,6 +287,7 @@ impl Client {
                                 }
                                 Some(glutin::VirtualKeyCode::Space) => {
                                     self.state.ud = 1.0;
+                                    self.state.try_jump = true;
                                 }
                                 Some(glutin::VirtualKeyCode::LShift) => {
                                     self.state.ud = -1.0;
@@ -269,12 +313,59 @@ impl Client {
                 },*/
                 _ => (),
             });
-            self.pos = self.pos
-                + (vec3(1.0, 0.0, 1.0) * camera_dir * self.state.fb
-                    + vec3(0.0, 1.0, 0.0) * self.state.ud
-                    + vec3(1.0, 0.0, 1.0) * right * self.state.lr)
+            let new_pos = self.pos
+                + (vec3(1.0, 0.0, 1.0) * camera_dir * self.state.fb)
                     * self.state.m
                     * (delta as f64 * MOVE_SPEED as f64) as f32;
+            if self.can_move(new_pos) {
+                self.pos = new_pos;
+            }
+            let new_pos = self.pos
+                + (vec3(1.0, 0.0, 1.0) * right * self.state.lr)
+                    * self.state.m
+                    * (delta as f64 * MOVE_SPEED as f64) as f32;
+            if self.can_move(new_pos) {
+                self.pos = new_pos;
+            }
+
+            // Jumping
+            if self.state.fly {
+                let new_pos = self.pos
+                    + (vec3(0.0, 1.0, 0.0) * self.state.ud)
+                        * self.state.m
+                        * (delta as f64 * MOVE_SPEED as f64) as f32;
+                if self.can_move(new_pos) {
+                    self.pos = new_pos;
+                }
+            } else {
+                // We're not in the air
+                let block_below = !self.can_move(self.pos-vec3(0.0,0.1,0.0));
+                if block_below {
+                    if self.state.jump > 0.3 {
+                        self.state.try_jump = false;
+                    }
+                    self.state.jump = 0.0;
+                }
+                let g_force = 9.7; // m/s^2
+                let j_seconds = self.state.jump; // s
+                let total_g = j_seconds * g_force; // m/s
+                let initial_y_v = if self.state.try_jump { 4.5 } else { 0.0 }; // m/s; this number was tuned manually, and only provisionally
+                let current_v = initial_y_v - total_g; // m/s
+                let current_m = current_v * (delta as f64 * 0.001 as f64) as f32; // meters
+                let new_pos = self.pos
+                    + vec3(0.0, 1.0, 0.0) * current_m;
+                if self.can_move(new_pos) {
+                    self.pos = new_pos;
+                } else if current_m > 1.0-abs(fract(self.pos.y)) {
+                    // We can get up to insane speeds when falling from heights, so we allow this partial movement
+                    self.pos.y = ceil(self.pos.y)-0.1;
+                } else if current_m < -abs(fract(self.pos.y)) {
+                    self.pos.y = floor(self.pos.y)+0.1;
+                }
+                if !block_below {
+                    self.state.jump += (delta as f64 * 0.001 as f64) as f32;
+                }
+            }
 
             self.channel.0.send(self.pos).unwrap();
             if let Ok(cmd) = self.channel.1.try_recv() {
@@ -307,6 +398,6 @@ impl Client {
     }
 
     pub fn origin_u(&self) -> [f32; 3] {
-        *to_vec3(self.origin*CHUNK_SIZE as i32).as_array()
+        *to_vec3(self.origin * CHUNK_SIZE as i32).as_array()
     }
 }

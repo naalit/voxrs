@@ -19,7 +19,7 @@ use client::Client;
 
 fn main() {
     let mut server = Server::new();
-    let mut client = server.add_player(vec3(0.0,0.0,0.0));
+    let mut client = server.add_player(vec3(0.0,25.0,72.0));
     std::thread::spawn(move ||
         server.start());
 
