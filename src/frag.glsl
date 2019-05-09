@@ -18,9 +18,13 @@ uniform vec3 cameraUp;
 struct MatData {
     vec3 color;
     float roughness;
+    float trans;
+    float metal;
+    float ior;
+    float nothing; // Just buffer to pack it in right
 };
 
-buffer mat_list {
+layout(std140) buffer mat_list {
     MatData materials[];
 };
 
@@ -329,7 +333,7 @@ uint getVoxel(ivec3 pos) {
 }
 
 // Regular grid
-uint trace(in vec3 ro, in vec3 rd, out vec2 t, out vec3 pos, out int iter, out float size, out vec3 normal) {
+uint trace(in vec3 ro, in vec3 rd, in uint ignore, out vec2 t, out vec3 pos, out int iter, out float size, out vec3 normal) {
     size = 1.0;
 
     ivec3 total_size = textureSize(blocks, 0);
@@ -358,7 +362,7 @@ uint trace(in vec3 ro, in vec3 rd, out vec2 t, out vec3 pos, out int iter, out f
             // texelFetch(chunks, ipos, 0).r;
         if (voxel == 121212)
             return 0;
-        if (voxel != 0) {
+        if (voxel != 0 && voxel != ignore) {
             t = isect(vec3(ipos) + 0.5, size, ro_chunk, rd, tmid, tmax);
             normal = vec3(mask);
             pos = vec3(ipos) + 0.5 + chunk_origin - root_size; // Translate it back to world space
@@ -370,6 +374,10 @@ uint trace(in vec3 ro, in vec3 rd, out vec2 t, out vec3 pos, out int iter, out f
         ipos += ivec3(mask) * istep;
     }
     return 0;
+}
+
+uint trace(in vec3 ro, in vec3 rd, out vec2 t, out vec3 pos, out int iter, out float size, out vec3 normal) {
+    return trace(ro,rd,0,t,pos,iter,size,normal);
 }
 
 
@@ -581,8 +589,31 @@ vec3 shade(uint m, vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos, vec3 mask) {
         ( fract( p.yz ) * mask.x ) +
         ( fract( p.zx ) * mask.y ) +
         ( fract( p.xy ) * mask.z );
+    vec3 behind = vec3(1.0);
+    if (mat.trans > 0.0) {
+        vec2 t__;
+        vec3 pos__;
+        float size__;
+        int iter__;
+        vec3 n__;
+
+        vec3 dir = refract(rd,n,1.0/mat.ior);
+        uint mat_index = trace(p, dir, m, t__, pos__, iter__, size__, n__);
+        MatData mat_ = mat_lookup(mat_index);
+
+        vec3 p___ = p+dir*t__.x;
+        vec3 old = n;
+        n = (p___ - pos__);
+        n = sign(n) * (abs(n.x) > abs(n.y) ? // Not y
+            (abs(n.x) > abs(n.z) ? vec3(1., 0., 0.) : vec3(0., 0., 1.)) :
+        	(abs(n.y) > abs(n.z) ? vec3(0., 1., 0.) : vec3(0., 0., 1.)));
+
+        behind = brdf(-lightDir,-dir,n,mat_);
+        behind = mix(vec3(1.0),behind,mat.trans);
+        n = old;
+    }
     return (shadow ? vec3(0.3) :
-        (0.1+ao(pos,n,tc)*0.2)*mat.color + c*brdf(-lightDir, -rd, n, mat));
+        (0.1+ao(pos,n,tc)*0.2)*mat.color + c*brdf(-lightDir, -rd, n, mat))*behind;
     #endif
 }
 
