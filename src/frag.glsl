@@ -333,7 +333,7 @@ uint getVoxel(ivec3 pos) {
 }
 
 // Regular grid
-uint trace(in vec3 ro, in vec3 rd, in uint ignore, out vec2 t, out vec3 pos, out int iter, out float size, out vec3 normal) {
+uint trace(in vec3 ro, in vec3 rd, in uint ignore, out vec2 t, out vec3 pos, inout int iter, out float size, out vec3 normal) {
     size = 1.0;
 
     ivec3 total_size = textureSize(blocks, 0);
@@ -355,7 +355,7 @@ uint trace(in vec3 ro, in vec3 rd, in uint ignore, out vec2 t, out vec3 pos, out
     vec3 sideDist = (sign(rd) * (vec3(ipos) - ro_chunk) + (sign(rd) * 0.5) + 0.5) * tdelta;
     bvec3 mask;
 
-    iter = MAX_ITER;
+    iter = MAX_ITER / iter;
     while (iter --> 0) {
         uint voxel =
             getVoxel(ipos);
@@ -376,7 +376,50 @@ uint trace(in vec3 ro, in vec3 rd, in uint ignore, out vec2 t, out vec3 pos, out
     return 0;
 }
 
-uint trace(in vec3 ro, in vec3 rd, out vec2 t, out vec3 pos, out int iter, out float size, out vec3 normal) {
+float shadow(in vec3 ro, in vec3 rd, in uint ignore) {
+    // size = 1.0;
+
+    ivec3 total_size = textureSize(blocks, 0);
+    scene_size = total_size.x;
+    float root_size = float(total_size.x) * 0.5;
+
+    // pos = chunk_origin + root_size;//vec3(root_size); // Center
+    // vec3 tmid,
+    //     // tmax_root,
+    //     tmax;
+    // We translate it to "grid space" first, so pos = vec3(0) is actually chunk_origin in world coordinates
+    vec3 ro_chunk = ro - chunk_origin + root_size;
+    // t = isect(pos, root_size*2.0, ro_chunk, rd, tmid, tmax_root);
+    // vec3 pos = ro_chunk;// + (t.x+0.01) * rd;
+    ivec3 ipos = ivec3(floor(ro_chunk));
+    ivec3 istep = ivec3(sign(rd));
+    // isect(vec3(ipos) + 0.5, size, ro_chunk, rd, tmid, tmax);
+    vec3 tdelta = abs(1.0 / rd);
+    vec3 sideDist = (sign(rd) * (vec3(ipos) - ro_chunk) + (sign(rd) * 0.5) + 0.5) * tdelta;
+    bvec3 mask;
+
+    int iter = MAX_ITER / 4;
+    while (iter --> 0) {
+        uint voxel =
+            getVoxel(ipos);
+            // texelFetch(chunks, ipos, 0).r;
+        if (voxel == 121212)
+            return 0.0;
+        if (voxel != 0 && voxel != ignore) {
+            // t = isect(vec3(ipos) + 0.5, size, ro_chunk, rd, tmid, tmax);
+            // normal = vec3(mask);
+            // pos = vec3(ipos) + 0.5 + chunk_origin - root_size; // Translate it back to world space
+            return 1.0;//voxel;
+        }
+
+        mask = lessThanEqual(sideDist.xyz, min(sideDist.yzx, sideDist.zxy));
+        sideDist += vec3(mask) * tdelta;
+        ipos += ivec3(mask) * istep;
+    }
+    return 0.0;
+}
+
+uint trace(in vec3 ro, in vec3 rd, out vec2 t, out vec3 pos, inout int iter, out float size, out vec3 normal) {
     return trace(ro,rd,0,t,pos,iter,size,normal);
 }
 
@@ -424,16 +467,24 @@ float schlick_g1(vec3 v, vec3 n, float k) {
     return ndotv / (ndotv * (1. - k) + k);
 }
 
+// Really a BSDF
 vec3 brdf(vec3 from, vec3 to, vec3 n, MatData mat) {
-    float ior = 1.5;
+    float ior = mat.ior; //1.5;
+    float ior_i = 1.0/ior;
+    float nDotL = dot(n,to);
+    bool is_refract = mat.trans > 0.0 && nDotL <= 0.0;
 
     // Half vector
     vec3 h = normalize(from + to);
+    if (is_refract)
+        h = to + ior_i * from;
 
     // Schlick fresnel
     float f0 = (1.-ior)/(1.+ior);
     f0 *= f0;
-    float fresnel = f0 + (1.-f0)*pow(1.-dot(from, h), 5.);
+    float vDotH = dot(from, h);
+    float lDotH = dot(to, h);
+    float fresnel = f0 + (1.-f0)*pow(1.-vDotH, 5.);
 
     // Beckmann microfacet distribution
     float m2 = sqr(mat.roughness);
@@ -447,8 +498,15 @@ vec3 brdf(vec3 from, vec3 to, vec3 n, MatData mat) {
     float k = mat.roughness * R2PI;
     float geometry = schlick_g1(from, n, k) * schlick_g1(to, n, k);
 
-    return saturate((fresnel*geometry*dist)/(4.*dot(n, from)*dot(n, to))
-        + (1.-f0)*oren_nayar(from, to, n, mat));
+
+    if (is_refract)
+        return
+            ior_i*ior_i* dist * geometry * (1.0 - fresnel) * abs(vDotH) * abs(lDotH) /
+            (sqr(vDotH + ior_i * lDotH) * dot(n, from) * nDotL)
+            ;
+    else
+        return saturate((fresnel*geometry*dist)/(4.*dot(n, from)*nDotL)
+            + (1.-f0)*oren_nayar(from, to, n, mat));
 }
 
 
@@ -580,21 +638,21 @@ vec3 shade(uint m, vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos, vec3 mask) {
 	#else
     vec3 lightDir = major_dir();//reflect(rd,n);
     vec3 c = sky(p,lightDir);
-    vec2 t_;
-    vec3 pos_;
-    int iter_ = MAX_ITER;
-    float size_;
-    bool shadow = false;//trace(p+1.1*n*(root_size/exp2(levels)), vec3(0.0,1.0,0.0), t_, pos_, iter_, size_);
+    // vec2 t_;
+    // vec3 pos_;
+    // int iter_ = MAX_ITER;
+    // float size_;
+    // bool shadow = false;//trace(p+1.1*n*(root_size/exp2(levels)), vec3(0.0,1.0,0.0), t_, pos_, iter_, size_);
     vec2 tc =
         ( fract( p.yz ) * mask.x ) +
         ( fract( p.zx ) * mask.y ) +
         ( fract( p.xy ) * mask.z );
-    vec3 behind = vec3(1.0);
+    vec3 behind = vec3(0.0);
     if (mat.trans > 0.0) {
         vec2 t__;
         vec3 pos__;
         float size__;
-        int iter__;
+        int iter__ = 4;
         vec3 n__;
 
         vec3 dir = refract(rd,n,1.0/mat.ior);
@@ -609,11 +667,41 @@ vec3 shade(uint m, vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos, vec3 mask) {
         	(abs(n.y) > abs(n.z) ? vec3(0., 1., 0.) : vec3(0., 0., 1.)));
 
         behind = brdf(-lightDir,-dir,n,mat_);
-        behind = mix(vec3(1.0),behind,mat.trans);
+        behind = mix(vec3(1.0),brdf(-dir,-rd,old,mat)*behind,mat.trans);
         n = old;
     }
-    return (shadow ? vec3(0.3) :
-        (0.1+ao(pos,n,tc)*0.2)*mat.color + c*brdf(-lightDir, -rd, n, mat))*behind;
+    vec3 ref = vec3(0.0);
+    if (mat.roughness < 0.2) {
+        vec2 t__;
+        vec3 pos__;
+        float size__;
+        int iter__ = 4;
+        vec3 n__;
+
+        vec3 dir = reflect(rd,n);
+        uint mat_index = trace(p, dir, m, t__, pos__, iter__, size__, n__);
+        vec3 old = n;
+        if (mat_index != 0.0) {
+            MatData mat_ = mat_lookup(mat_index);
+
+            vec3 p___ = p+dir*t__.x;
+
+            n = (p___ - pos__);
+            n = sign(n) * (abs(n.x) > abs(n.y) ? // Not y
+                (abs(n.x) > abs(n.z) ? vec3(1., 0., 0.) : vec3(0., 0., 1.)) :
+            	(abs(n.y) > abs(n.z) ? vec3(0., 1., 0.) : vec3(0., 0., 1.)));
+
+            ref = brdf(-lightDir,-dir,n,mat_);
+        } else
+            ref = sky(p, dir);
+        ref = brdf(dir,-rd,old,mat)*ref;
+        ref *= pow(1.0-mat.roughness,2.0);
+        // behind = mix(vec3(1.0),brdf(-dir,-rd,old,mat)*behind,mat.trans);
+        n = old;
+    }
+    float shadow = shadow(p,lightDir,m);
+    return
+        (0.1+ao(pos,n,tc)*0.2)*mat.color + shadow*c*brdf(-lightDir, -rd, n, mat) + behind + ref;
     #endif
 }
 
@@ -664,7 +752,7 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     vec2 t;
     vec3 pos;
     float size;
-    int iter;
+    int iter = 1;
     vec3 n;
 
     uint mat = trace(ro, rd, t, pos, iter, size, n);
