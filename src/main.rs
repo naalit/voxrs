@@ -6,12 +6,14 @@ extern crate rayon;
 extern crate stopwatch;
 extern crate noise;
 extern crate rand;
+extern crate enum_iterator;
 
 mod chunk;
 mod terrain;
 mod common;
 mod server;
 mod client;
+mod material;
 
 use common::*;
 use server::Server;

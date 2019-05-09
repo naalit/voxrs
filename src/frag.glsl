@@ -15,6 +15,15 @@ uniform vec3 cameraUp;
 // Switch between fb39ca's DDA (https://www.shadertoy.com/view/4dX3zl) and Amanatides and Woo's algorithm
 #define DDA
 
+struct MatData {
+    vec3 color;
+    float roughness;
+};
+
+buffer mat_list {
+    MatData materials[];
+};
+
 #if OCTREE
 // We'll need to change the max later
 #define MAX_LEVELS 8
@@ -184,11 +193,6 @@ const int MAX_ITER = 512;
 #define PI 3.1415926535
 const float IPI = 1./PI;
 const float R2PI = sqrt(2./PI);
-
-struct Material {
-    vec3 base_color;
-    float roughness;
-};
 
 float sqr(float x) { return x*x; }
 #define saturate(x) clamp(x,0.,1.)
@@ -384,7 +388,7 @@ vec3 sky_cam(vec3 pos, vec3 dir) {
 }
 
 // https://shaderjvo.blogspot.com/2011/08/van-ouwerkerks-rewrite-of-oren-nayar.html
-vec3 oren_nayar(vec3 from, vec3 to, vec3 normal, Material mat) {
+vec3 oren_nayar(vec3 from, vec3 to, vec3 normal, MatData mat) {
     // Roughness, A and B
     float roughness = mat.roughness;
     float roughness2 = roughness * roughness;
@@ -401,7 +405,7 @@ vec3 oren_nayar(vec3 from, vec3 to, vec3 normal, Material mat) {
     float diffuse_oren_nayar = cos_phi * sin_theta / max(cos_theta.x, cos_theta.y);
     float diffuse = cos_theta.x * (oren_nayar.x + oren_nayar.y * diffuse_oren_nayar);
 
-    return mat.base_color * diffuse;
+    return mat.color * diffuse;
 }
 
 
@@ -412,7 +416,7 @@ float schlick_g1(vec3 v, vec3 n, float k) {
     return ndotv / (ndotv * (1. - k) + k);
 }
 
-vec3 brdf(vec3 from, vec3 to, vec3 n, Material mat) {
+vec3 brdf(vec3 from, vec3 to, vec3 n, MatData mat) {
     float ior = 1.5;
 
     // Half vector
@@ -495,7 +499,9 @@ float ao( vec3 v, vec3 n, vec2 tc ) {
 	return 1.0 - filterf( side, corner, tc );
 }
 
-Material mat_lookup(uint mat) {
+MatData mat_lookup(uint mat) {
+    return materials[mat];
+    /*
     switch(mat)
     {
         case 1:
@@ -505,6 +511,7 @@ Material mat_lookup(uint mat) {
         default:
             return Material(vec3(1.0,1.0,1.0),1.0);
     }
+    */
 }
 
 vec3 shade(uint m, vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos, vec3 mask) {
@@ -536,9 +543,9 @@ vec3 shade(uint m, vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos, vec3 mask) {
     	(abs(n.y) > abs(n.z) ? vec3(0., 1., 0.) : vec3(0., 0., 1.)));
     // #endif
 
-    Material mat = mat_lookup(m);
+    MatData mat = mat_lookup(m);
     // Material(normalize(abs(n)+abs(pos)+vec3(0.5)), 0.9); // Color from normal+position of voxel
-    // mat.base_color = vec3(1.,.9,.7);
+    // mat.color = vec3(1.,.9,.7);
     #if MAT_SAMPLES
     vec3 acc = vec3(0.);
     int j;
@@ -575,7 +582,7 @@ vec3 shade(uint m, vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos, vec3 mask) {
         ( fract( p.zx ) * mask.y ) +
         ( fract( p.xy ) * mask.z );
     return (shadow ? vec3(0.3) :
-        (0.1+ao(pos,n,tc)*0.2)*mat.base_color + c*brdf(-lightDir, -rd, n, mat));
+        (0.1+ao(pos,n,tc)*0.2)*mat.color + c*brdf(-lightDir, -rd, n, mat));
     #endif
 }
 

@@ -1,5 +1,6 @@
 use super::chunk::*;
 use super::common::*;
+use super::material::*;
 use glium::backend::Facade;
 use glium::*;
 use glsl_include::Context as ShaderContext;
@@ -192,6 +193,8 @@ impl Client {
     }
 
     pub fn game_loop(&mut self) {
+        use enum_iterator::IntoEnumIterator;
+
         let mut events_loop = None;
         std::mem::swap(&mut self.events_loop, &mut events_loop);
         let mut events_loop = events_loop.unwrap();
@@ -210,6 +213,12 @@ impl Client {
             6.0 // 06:00, in minutes
             * 60.0 // Seconds
             ;
+
+        let mats = Material::into_enum_iter()
+            .map(|x| x.mat_data())
+            .collect::<Vec<MatData>>();
+        let mat_buf = glium::uniforms::UniformBuffer::empty_unsized_immutable(&self.display, std::mem::size_of::<MatData>()*mats.len()).unwrap();
+        mat_buf.write(mats.as_slice());
 
         let mut closed = false;
         let mut mouse = vec2(0.0, 0.0);
@@ -349,7 +358,7 @@ impl Client {
                 let g_force = 9.7; // m/s^2
                 let j_seconds = self.state.jump; // s
                 let total_g = j_seconds * g_force; // m/s
-                let initial_y_v = if self.state.try_jump { 4.5 } else { 0.0 }; // m/s; this number was tuned manually, and only provisionally
+                let initial_y_v = if self.state.try_jump { 5.0 } else { 0.0 }; // m/s; this number was tuned manually, and only provisionally
                 let current_v = initial_y_v - total_g; // m/s
                 let current_m = current_v * (delta as f64 * 0.001 as f64) as f32; // meters
                 let new_pos = self.pos
@@ -388,6 +397,7 @@ impl Client {
                        chunks: &self.chunk_buf,
                        blocks: &self.block_buf,
                        chunk_origin: self.origin_u(),
+                       mat_list: &mat_buf,
                     },
                     &Default::default(),
                 )

@@ -227,6 +227,24 @@ version = "1.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
+name = "enum-iterator"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "enum-iterator-derive 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
+name = "enum-iterator-derive"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "proc-macro2 0.4.28 (registry+https://github.com/rust-lang/crates.io-index)",
+ "quote 0.6.12 (registry+https://github.com/rust-lang/crates.io-index)",
+ "syn 0.15.34 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "enum_primitive"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1027,6 +1045,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "syn"
+version = "0.15.34"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
+ "proc-macro2 0.4.28 (registry+https://github.com/rust-lang/crates.io-index)",
+ "quote 0.6.12 (registry+https://github.com/rust-lang/crates.io-index)",
+ "unicode-xid 0.1.0 (registry+https://github.com/rust-lang/crates.io-index)",
+]
+
+[[package]]
 name = "thread-id"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1080,6 +1108,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "voxrs"
 version = "0.1.0"
 dependencies = [
+ "enum-iterator 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "glium 0.24.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "glm 0.2.3 (registry+https://github.com/rust-lang/crates.io-index)",
  "glsl-include 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1263,6 +1292,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum dlib 0.4.1 (registry+https://github.com/rust-lang/crates.io-index)" = "77e51249a9d823a4cb79e3eca6dcd756153e8ed0157b6c04775d04bf1b13b76a"
 "checksum downcast-rs 1.0.4 (registry+https://github.com/rust-lang/crates.io-index)" = "f2b92dfd5c2f75260cbf750572f95d387e7ca0ba5e3fbe9e1a33f23025be020f"
 "checksum either 1.5.2 (registry+https://github.com/rust-lang/crates.io-index)" = "5527cfe0d098f36e3f8839852688e63c8fff1c90b2b405aef730615f9a7bcf7b"
+"checksum enum-iterator 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "d31b842ac9b4f12dc115bc60448b4ed645ddcba4415399ddb03ed3e6a068e0ec"
+"checksum enum-iterator-derive 0.3.0 (registry+https://github.com/rust-lang/crates.io-index)" = "f3163cb95deb622a323326d6978d377f95aff060573526cb15eec4e33f96bc41"
 "checksum enum_primitive 0.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "be4551092f4d519593039259a9ed8daedf0da12e5109c5280338073eaeb81180"
 "checksum env_logger 0.3.5 (registry+https://github.com/rust-lang/crates.io-index)" = "15abd780e45b3ea4f76b4e9a26ff4843258dd8a3eed2775a0e7368c2e7936c2f"
 "checksum fnv 1.0.6 (registry+https://github.com/rust-lang/crates.io-index)" = "2fad85553e09a6f881f739c29f0b00b0f01357c743266d478b68951ce23285f3"
@@ -1356,6 +1387,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 "checksum stable_deref_trait 1.1.1 (registry+https://github.com/rust-lang/crates.io-index)" = "dba1a27d3efae4351c8051072d619e3ade2820635c3958d826bfea39d59b54c8"
 "checksum stb_truetype 0.2.6 (registry+https://github.com/rust-lang/crates.io-index)" = "69b7df505db8e81d54ff8be4693421e5b543e08214bd8d99eb761fcb4d5668ba"
 "checksum stopwatch 0.0.7 (registry+https://github.com/rust-lang/crates.io-index)" = "3d04b5ebc78da44d3a456319d8bc2783e7d8cc7ccbb5cb4dc3f54afbd93bf728"
+"checksum syn 0.15.34 (registry+https://github.com/rust-lang/crates.io-index)" = "a1393e4a97a19c01e900df2aec855a29f71cf02c402e2f443b8d2747c25c5dbe"
 "checksum thread-id 2.0.0 (registry+https://github.com/rust-lang/crates.io-index)" = "a9539db560102d1cef46b8b78ce737ff0bb64e7e18d35b2a5688f7d097d0ff03"
 "checksum thread_local 0.2.7 (registry+https://github.com/rust-lang/crates.io-index)" = "8576dbbfcaef9641452d5cf0df9b0e7eeab7694956dd33bb61515fb8f18cfdd5"
 "checksum thread_local 0.3.6 (registry+https://github.com/rust-lang/crates.io-index)" = "c6b53e329000edc2b34dbe8545fd20e55a333362d0a321909685a19bd28c3f1b"

@@ -3,6 +3,7 @@ use super::glm::*;
 use noise::*;
 use rayon::prelude::*;
 use super::chunk::Chunks;
+use super::material::*;
 
 pub struct Gen {
     noise: HybridMulti,
@@ -41,21 +42,21 @@ impl Gen {
                         to_vec3(loc) * (CHUNK_SIZE as f32)
                             + 0.5
                             + vec3((z as f32) - rad, (y as f32) - rad, (x as f32) - rad),
-                    );
+                    ) as Block;
                 }
             }
         });
         c
     }
 
-    fn gen_block(&self, loc: Vector3<f32>) -> Block {
+    fn gen_block(&self, loc: Vector3<f32>) -> Material {
         let h = self.height(vec2(loc.x, loc.z));
         if abs(loc.y-h) < 1.0 {
-            2
+            Material::Grass
         } else if loc.y < h {
-            1
+            Material::Stone
         } else {
-            0
+            Material::Air
         }
     }
 
