@@ -6,6 +6,7 @@ pub enum Material {
     Stone,
     Grass,
     Sand,
+    Water,
 }
 #[derive(Copy,Clone)]
 pub struct MatData {
@@ -22,7 +23,8 @@ impl Material {
             Material::Stone => MatData { color: [0.4; 3], roughness: 0.2 },
             Material::Grass => MatData { color: [0.3,0.7,0.5], roughness: 0.8 },
             Material::Sand => MatData { color: [0.9,0.7,0.6], roughness: 0.6 },
-            _ => MatData { color: [0.0; 3], roughness: 1.0 },
+            Material::Water => MatData { color: [0.2,0.4,0.9], roughness: 0.05 },
+            Material::Air => MatData { color: [0.0; 3], roughness: 1.0 },
         }
     }
 }

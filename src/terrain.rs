@@ -1,9 +1,9 @@
+use super::chunk::Chunks;
 use super::common::*;
 use super::glm::*;
+use super::material::*;
 use noise::*;
 use rayon::prelude::*;
-use super::chunk::Chunks;
-use super::material::*;
 
 pub struct Gen {
     noise: HybridMulti,
@@ -22,7 +22,8 @@ impl Gen {
         for (z, page) in c.map.iter_mut().enumerate() {
             for (y, row) in page.iter_mut().enumerate() {
                 for (x, n) in row.iter_mut().enumerate() {
-                    c.chunks[i] = self.gen_chunk(ivec3(x as i32, y as i32, z as i32) - CHUNK_NUM as i32 / 2);
+                    c.chunks[i] =
+                        self.gen_chunk(ivec3(x as i32, y as i32, z as i32) - CHUNK_NUM as i32 / 2);
                     *n = i;
                     i += 1;
                 }
@@ -51,10 +52,18 @@ impl Gen {
 
     fn gen_block(&self, loc: Vector3<f32>) -> Material {
         let h = self.height(vec2(loc.x, loc.z));
-        if abs(loc.y-h) < 1.0 {
+        let surface = if h < 2.0 {
+            Material::Sand
+        } else {
             Material::Grass
+        };
+        
+        if abs(loc.y - h) < 1.0 {
+            surface
         } else if loc.y < h {
             Material::Stone
+        } else if loc.y < 1.0 {
+            Material::Water
         } else {
             Material::Air
         }
