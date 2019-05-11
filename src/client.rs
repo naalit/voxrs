@@ -204,7 +204,7 @@ impl Client {
         let indices = glium::index::NoIndices(glium::index::PrimitiveType::TriangleStrip);
 
         let vshader = shader("vert.glsl".to_string(), &[]);
-        let fshader = shader("frag.glsl".to_string(), &["sky.glsl".to_string()]);
+        let fshader = shader("frag.glsl".to_string(), &["sky.glsl".to_string(), "bsdf.glsl".to_string()]);
 
         let program = glium::Program::from_source(&self.display, &vshader, &fshader, None).unwrap();
 
@@ -390,7 +390,6 @@ impl Client {
                     &uniform! {
                        iTime: initial_time + timer.elapsed_ms() as f32 / 1000.0,
                        iResolution: *res.as_array(),
-                       iMouse: *mouse.as_array(),
                        cameraPos: *self.pos.as_array(),
                        cameraDir: *camera_dir.as_array(),
                        cameraUp: *camera_up.as_array(),

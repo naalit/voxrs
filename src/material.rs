@@ -6,7 +6,7 @@ pub enum Material {
     Stone,
     Grass,
     Sand,
-    Water,
+    Water = 4,
 }
 #[derive(Copy, Clone)]
 pub struct MatData {
