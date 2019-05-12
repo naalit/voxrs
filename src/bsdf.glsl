@@ -134,7 +134,7 @@ vec3 shade(uint m, vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos, vec3 mask) {
 
     MatData mat = mat_lookup(m);
 
-    vec3 lightDir = -normalize( vec3(-0.5,0.6,0.7) );//major_dir();
+    vec3 lightDir = major_dir();
     vec3 c = vec3(1.0);//sky(p,lightDir);
     vec2 tc =
         ( fract( p.yz ) * mask.x ) +
@@ -159,7 +159,7 @@ vec3 shade(uint m, vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos, vec3 mask) {
             (abs(n.x) > abs(n.z) ? vec3(1., 0., 0.) : vec3(0., 0., 1.)) :
         	(abs(n.y) > abs(n.z) ? vec3(0., 1., 0.) : vec3(0., 0., 1.)));
 
-        behind = brdf(-lightDir,-dir,n,mat_);
+        behind = brdf(lightDir,-dir,n,mat_);
         behind = mix(vec3(0.0),brdf(-dir,-rd,old,mat)*behind,mat.trans);
         n = old;
     }
@@ -168,7 +168,7 @@ vec3 shade(uint m, vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos, vec3 mask) {
         vec2 t_;
         vec3 pos_;
         float size_;
-        int iter_ = 4;
+        int iter_ = 2;
         vec3 n_;
 
         vec3 dir = reflect(rd,n);
@@ -189,9 +189,9 @@ vec3 shade(uint m, vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos, vec3 mask) {
                 (abs(n.x) > abs(n.z) ? vec3(1., 0., 0.) : vec3(0., 0., 1.)) :
             	(abs(n.y) > abs(n.z) ? vec3(0., 1., 0.) : vec3(0., 0., 1.)));
 
-            vec3 c_ = sky(p_,lightDir);
+            vec3 c_ = max(vec3(0.0),sky(p_,lightDir));
 
-            ref = (0.1+ao(pos_,n,tc_))*mat_.color + c_*brdf(-lightDir,-dir,n,mat_);
+            ref = (0.1+smoothstep(-0.1,0.3,lightDir.y))*(0.1+ao(pos_,n,tc_))*mat_.color + c_*brdf(lightDir,-dir,n,mat_);
         } else
             ref = sky(p, dir);
         ref = IPI * ref;
@@ -199,7 +199,7 @@ vec3 shade(uint m, vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos, vec3 mask) {
         ref *= pow(1.0-mat.roughness,2.0);
         n = old;
     }
-    float shadow = shadow(p+n*0.1,-lightDir,0);
+    float shadow = shadow(p+n*0.1,lightDir,0);
     return
-        (0.1+ao(pos,n,tc)*0.2)*mat.color + shadow*c*brdf(-lightDir, -rd, n, mat) + behind + ref;
+        (0.1+ao(pos,n,tc)*0.2)*mat.color + shadow*c*brdf(lightDir, -rd, n, mat) + behind + ref;
 }

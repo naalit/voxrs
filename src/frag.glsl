@@ -217,7 +217,7 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     vec3 n;
 
     uint mat = trace(ro, rd, t, pos, iter, size, n);
-    vec3 col = mat != 0 ? shade(mat, ro, rd, t, iter, pos, n) : sky(ro, -rd);
+    vec3 col = mat != 0 ? shade(mat, ro, rd, t, iter, pos, n) : sky(ro, rd);
     // col = vec3(iter) / vec3(MAX_ITER);
 
     fragColor = vec4(col,1.0);

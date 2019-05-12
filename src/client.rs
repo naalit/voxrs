@@ -214,10 +214,10 @@ impl Client {
         let program = glium::Program::from_source(&self.display, &vshader, &fshader, None).unwrap();
 
         let timer = stopwatch::Stopwatch::start_new();
-        let initial_time =
+        let initial_time = 0.0;/*
             6.0 // 06:00, in minutes
             * 60.0 // Seconds
-            ;
+            ;*/
 
         let mats = Material::into_enum_iter()
             .map(|x| x.mat_data())
