@@ -190,7 +190,7 @@ impl Chunks {
     pub fn new() -> Self {
         Chunks {
             chunks: vec![
-                [[[0; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE];
+                Some([[[0; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE]);
                 CHUNK_NUM * CHUNK_NUM * CHUNK_NUM
             ],
             map: vec![vec![vec![0; CHUNK_NUM]; CHUNK_NUM]; CHUNK_NUM],
@@ -216,12 +216,14 @@ impl Chunks {
             CHUNK_SIZE * CHUNK_NUM
         ];
         for (n, i) in self.chunks.iter().enumerate() {
-            let p = Self::idx_to_pos(n);
-            for (z, row_x) in i.iter().enumerate() {
-                for (y, row_y) in row_x.iter().enumerate() {
-                    for (x, b) in row_y.iter().enumerate() {
-                        // assert!(p.0 <= s*CHUNK_SIZE - CHUNK_SIZE, "{}", p.0);
-                        c.blocks[p.2*CHUNK_SIZE + z][p.1*CHUNK_SIZE + y][p.0*CHUNK_SIZE + x] = *b;
+            if let Some(i) = i {
+                let p = Self::idx_to_pos(n);
+                for (z, row_x) in i.iter().enumerate() {
+                    for (y, row_y) in row_x.iter().enumerate() {
+                        for (x, b) in row_y.iter().enumerate() {
+                            // assert!(p.0 <= s*CHUNK_SIZE - CHUNK_SIZE, "{}", p.0);
+                            c.blocks[p.2*CHUNK_SIZE + z][p.1*CHUNK_SIZE + y][p.0*CHUNK_SIZE + x] = *b;
+                        }
                     }
                 }
             }
@@ -230,9 +232,13 @@ impl Chunks {
         for (z, row_x) in self.map.iter().enumerate() {
             for (y, row_y) in row_x.iter().enumerate() {
                 for (x, &n) in row_y.iter().enumerate() {
-                    let p = Self::idx_to_pos(n);
-                    let p = (p.0 as u8, p.1 as u8, p.2 as u8);
-                    c.chunks[z][y][x] = p;
+                    // if self.chunks[n].is_some() {
+                        let p = Self::idx_to_pos(n);
+                        let p = (p.0 as u8, p.1 as u8, p.2 as u8);
+                        c.chunks[z][y][x] = p;
+                    // } else {
+                    //     c.chunks[z][y][x] = (255,255,255);
+                    // }
                 }
             }
         }
@@ -251,12 +257,14 @@ impl Chunks {
             CHUNK_SIZE * CHUNK_NUM
         ];
         for (n, i) in self.chunks.iter().enumerate() {
-            let p = Self::idx_to_pos(n);
-            for (z, row_x) in i.iter().enumerate() {
-                for (y, row_y) in row_x.iter().enumerate() {
-                    for (x, b) in row_y.iter().enumerate() {
-                        // assert!(p.0 <= s*CHUNK_SIZE - CHUNK_SIZE, "{}", p.0);
-                        c.blocks[p.2*CHUNK_SIZE + z][p.1*CHUNK_SIZE + y][p.0*CHUNK_SIZE + x] = *b;
+            if let Some(i) = i {
+                let p = Self::idx_to_pos(n);
+                for (z, row_x) in i.iter().enumerate() {
+                    for (y, row_y) in row_x.iter().enumerate() {
+                        for (x, b) in row_y.iter().enumerate() {
+                            // assert!(p.0 <= s*CHUNK_SIZE - CHUNK_SIZE, "{}", p.0);
+                            c.blocks[p.2*CHUNK_SIZE + z][p.1*CHUNK_SIZE + y][p.0*CHUNK_SIZE + x] = *b;
+                        }
                     }
                 }
             }
@@ -267,8 +275,12 @@ impl Chunks {
                 for (x, &n) in row_y.iter().enumerate() {
                     let p = Self::idx_to_pos(n);
                     let p = (p.0 as u8, p.1 as u8, p.2 as u8);
+                    // if self.chunks[n].is_some() {
+                        c.chunks[z][y][x] = p;
+                    // } else {
+                    //     c.chunks[z][y][x] = (255,255,255);
+                    // }
                     m.insert((p.2,p.1,p.0), self.chunks[n]);
-                    c.chunks[z][y][x] = p;
                 }
             }
         }

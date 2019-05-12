@@ -72,7 +72,7 @@ uint getVoxel(ivec3 pos) {
     ivec3 chunk = /*pos >> LOG2_CHUNK; /*/ pos / CHUNK_SIZE;
     ivec3 in_chunk = /*pos & (CHUNK_SIZE - 1); /*/ pos % CHUNK_SIZE;
     uvec3 offset = texelFetch(chunks, chunk, 0).zyx;
-    return texelFetch(blocks, ivec3(offset)*CHUNK_SIZE + in_chunk, 0);
+    return texelFetch(blocks, ivec3(offset)*CHUNK_SIZE + in_chunk, 0).r;
 }
 
 // Regular grid
@@ -96,10 +96,22 @@ uint trace(in vec3 ro, in vec3 rd, in uint ignore, out vec2 t, out vec3 pos, ino
 
     iter = MAX_ITER / iter;
     while (iter --> 0) {
-        uint voxel =
-            getVoxel(ipos);
-        if (voxel == 121212)
+        if (any(lessThan(ipos,ivec3(0))) || any(greaterThanEqual(ipos,ivec3(scene_size))))
             return 0;
+        ivec3 chunk = ipos / CHUNK_SIZE;
+        uvec3 offset = texelFetch(chunks, chunk, 0).zyx;
+        // Skip chunk w/o checking voxels in between
+        if (offset.x == 255) {
+            do {
+                mask = lessThanEqual(sideDist.xyz, min(sideDist.yzx, sideDist.zxy));
+                sideDist += vec3(mask) * tdelta;
+                ipos += ivec3(mask) * istep;
+            } while (ipos / CHUNK_SIZE == chunk);
+            continue;
+        }
+        uint voxel =
+            texelFetch(blocks, ivec3(offset)*CHUNK_SIZE+(ipos % CHUNK_SIZE),0).r;
+            // getVoxel(ipos);
         if (voxel != 0 && voxel != ignore) {
             t = isect(vec3(ipos) + 0.5, size, ro_chunk, rd, tmid, tmax);
             normal = vec3(mask);
@@ -130,19 +142,32 @@ float shadow(in vec3 ro, in vec3 rd, in uint ignore) {
 
     int iter = MAX_ITER / 4;
     while (iter --> 0) {
-        uint voxel =
-            getVoxel(ipos);
-        if (voxel == 121212)
-            return 0.0;
-        if (voxel != 0 && voxel != ignore) {
+        if (any(lessThan(ipos,ivec3(0))) || any(greaterThanEqual(ipos,ivec3(scene_size))))
             return 1.0;
+        ivec3 chunk = ipos / CHUNK_SIZE;
+        uvec3 offset = texelFetch(chunks, chunk, 0).zyx;
+        // Skip chunk w/o checking voxels in between
+        if (offset.x == 255) {
+            do {
+                mask = lessThanEqual(sideDist.xyz, min(sideDist.yzx, sideDist.zxy));
+                sideDist += vec3(mask) * tdelta;
+                ipos += ivec3(mask) * istep;
+            } while (ipos / CHUNK_SIZE == chunk);
+            continue;
+        }
+        uint voxel =
+            texelFetch(blocks, ivec3(offset)*CHUNK_SIZE+(ipos % CHUNK_SIZE),0).r;
+        // if (voxel == 121212)
+        //     return 0.0;
+        if (voxel != 0 && voxel != ignore) {
+            return 0.0;
         }
 
         mask = lessThanEqual(sideDist.xyz, min(sideDist.yzx, sideDist.zxy));
         sideDist += vec3(mask) * tdelta;
         ipos += ivec3(mask) * istep;
     }
-    return 0.0;
+    return 1.0;
 }
 
 uint trace(in vec3 ro, in vec3 rd, out vec2 t, out vec3 pos, inout int iter, out float size, out vec3 normal) {
@@ -193,6 +218,7 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
 
     uint mat = trace(ro, rd, t, pos, iter, size, n);
     vec3 col = mat != 0 ? shade(mat, ro, rd, t, iter, pos, n) : sky(ro, -rd);
+    // col = vec3(iter) / vec3(MAX_ITER);
 
     fragColor = vec4(col,1.0);
 }

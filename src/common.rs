@@ -7,7 +7,7 @@ pub const CHUNK_SIZE: usize = 16;
 pub const CHUNK_NUM: usize = 24;
 
 pub type Block = u16;
-pub type Chunk = [[[Block; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE];
+pub type Chunk = Option<[[[Block; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE]>;
 
 pub enum Message {
     LoadChunks(Vec<IVec3>),

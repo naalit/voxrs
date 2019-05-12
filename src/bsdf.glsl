@@ -134,8 +134,8 @@ vec3 shade(uint m, vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos, vec3 mask) {
 
     MatData mat = mat_lookup(m);
 
-    vec3 lightDir = major_dir();
-    vec3 c = sky(p,lightDir);
+    vec3 lightDir = -normalize( vec3(-0.5,0.6,0.7) );//major_dir();
+    vec3 c = vec3(1.0);//sky(p,lightDir);
     vec2 tc =
         ( fract( p.yz ) * mask.x ) +
         ( fract( p.zx ) * mask.y ) +
@@ -199,7 +199,7 @@ vec3 shade(uint m, vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos, vec3 mask) {
         ref *= pow(1.0-mat.roughness,2.0);
         n = old;
     }
-    float shadow = shadow(p,lightDir,m);
+    float shadow = shadow(p+n*0.1,-lightDir,0);
     return
         (0.1+ao(pos,n,tc)*0.2)*mat.color + shadow*c*brdf(-lightDir, -rd, n, mat) + behind + ref;
 }

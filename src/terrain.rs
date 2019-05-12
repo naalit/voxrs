@@ -34,20 +34,27 @@ impl Gen {
 
     pub fn gen_chunk(&self, loc: Vector3<i32>) -> Chunk {
         let mut c = [[[0; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE];
+        // let mut full = false;
         let rad = (CHUNK_SIZE as f32) / 2.0;
         //if loc == ivec3(0,0,0) { println!("Why is zero?"); }
         c.par_iter_mut().enumerate().for_each(|(z, row_x)| {
             for (y, row_y) in row_x.iter_mut().enumerate() {
                 for (x, b) in row_y.iter_mut().enumerate() {
-                    *b = self.gen_block(
+                    let q = self.gen_block(
                         to_vec3(loc) * (CHUNK_SIZE as f32)
                             + 0.5
                             + vec3((z as f32) - rad, (y as f32) - rad, (x as f32) - rad),
-                    ) as Block;
+                    );
+                    // full = full || q != Material::Air;
+                    *b = q as Block;
                 }
             }
         });
-        c
+        if c.iter().flatten().flatten().any(|x| *x != 0) {
+            Some(c)
+        } else {
+            None
+        }
     }
 
     fn gen_block(&self, loc: Vector3<f32>) -> Material {
@@ -57,7 +64,7 @@ impl Gen {
         } else {
             Material::Grass
         };
-        
+
         if abs(loc.y - h) < 1.0 {
             surface
         } else if loc.y < h {

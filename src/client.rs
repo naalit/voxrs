@@ -141,7 +141,9 @@ impl Client {
         let chunk = chunk(pos) - self.origin + CHUNK_NUM as i32 / 2;
         let in_chunk = in_chunk(pos);
         let offset = self.map[chunk.z as usize][chunk.y as usize][chunk.x as usize];
-        self.chunks[&offset][in_chunk.z as usize][in_chunk.y as usize][in_chunk.x as usize]
+        if offset.0 == 255 { 0 } else {
+            self.chunks[&offset].map_or(0,|x|x[in_chunk.z as usize][in_chunk.y as usize][in_chunk.x as usize])
+        }
     }
 
     pub fn can_move(&self, new_pos: Vec3) -> bool {
@@ -157,30 +159,33 @@ impl Client {
     pub fn run_cmd_list(&mut self, l: CommandList) {
         self.origin = l.2;
         for i in l.0 {
-            self.pix_buf.write(
-                &i.0.iter()
-                    .flat_map(|x| x.iter())
-                    .flat_map(|x| x.iter())
-                    .cloned()
-                    .collect::<Vec<Block>>(),
-            );
+            if let Some(ref c) = i.0 {
+                self.pix_buf.write(
+                    &c.iter()
+                        .flat_map(|x| x.iter())
+                        .flat_map(|x| x.iter())
+                        .cloned()
+                        .collect::<Vec<Block>>(),
+                );
+                let s = CHUNK_SIZE as u32;
+                let i = i.1;
+                let i = (i.0 * s, i.1 * s, i.2 * s);
+                self.block_buf.main_level().raw_upload_from_pixel_buffer(
+                    self.pix_buf.as_slice(),
+                    i.0..i.0 + s,
+                    i.1..i.1 + s,
+                    i.2..i.2 + s,
+                );
+            }
             self.chunks
                 .insert(((i.1).2 as u8, (i.1).1 as u8, (i.1).0 as u8), i.0);
-            let i = i.1;
-            let s = CHUNK_SIZE as u32;
-            let i = (i.0 * s, i.1 * s, i.2 * s);
-            self.block_buf.main_level().raw_upload_from_pixel_buffer(
-                self.pix_buf.as_slice(),
-                i.0..i.0 + s,
-                i.1..i.1 + s,
-                i.2..i.2 + s,
-            );
         }
         self.dpix_buf.write(
             &l.1.iter()
                 .flat_map(|x| x.iter())
                 .flat_map(|x| x.iter())
-                .cloned()
+                .map(|x|if self.chunks[x].is_some() {*x} else {(255,255,255)})
+                // .cloned()
                 .collect::<Vec<(u8, u8, u8)>>(),
         );
         self.chunk_buf.main_level().raw_upload_from_pixel_buffer(
