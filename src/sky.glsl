@@ -1,3 +1,4 @@
+#define PBR_SKY
 // How fast time goes, in days/second. So 0.00001157407 is real time, 0.00069 is 1 hour per minute
 #define SUN_SPEED 0.00069
 // How fast the moon phases go. 1.0 is a normal moon phase - 29.5 days/cycle
@@ -67,7 +68,6 @@ float fBm(in vec2 pos) {
 
 // A bunch of this code is from 16807
 // https://www.shadertoy.com/view/3dBSDW
-
 bool isect_sphere(vec3 ro, vec3 rd, float rad, inout float t0, inout float t1)
 {
 	vec3 rc = -ro;
@@ -82,6 +82,7 @@ bool isect_sphere(vec3 ro, vec3 rd, float rad, inout float t0, inout float t1)
 	return true;
 }
 
+#ifdef PBR_SKY
 // scattering coefficients at sea level (m)
 const vec3 betaR = vec3(5.5e-6, 13.0e-6, 22.4e-6); // Rayleigh
 const vec3 betaM = vec3(21e-6); // Mie
@@ -138,7 +139,7 @@ const float sun_power = 20.0;
 
 const float atmosphere = atmosphere_radius;
 
-const int num_samples = 16;
+const int num_samples = 8;
 const int num_samples_light = 8;
 
 float approx_air_column_density_ratio_along_2d_ray_for_curved_world(
@@ -257,6 +258,7 @@ bool get_sun_light(
 
 	return true;
 }
+#endif
 
 vec3 major_dir() {
 	float sun_speed = SUN_SPEED * TAU;
@@ -265,8 +267,9 @@ vec3 major_dir() {
 
 vec3 sky(vec3 ro, vec3 rd)
 {
+	// return vec3(1.0);
     float horiz = dot(rd,vec3(0.0,1.0,0.0));
-    #if 0
+    #if 1
     //STRICT_HORIZ
     if (horiz <= 0.0)
         return vec3(0.0);
@@ -289,11 +292,16 @@ vec3 sky(vec3 ro, vec3 rd)
         #else
         noise
         #endif
-        ((sun_speed*320.0*iTime+uv)*0.01*(1.0/(10.0*cloud_size))) ;
+        ((sun_speed*320.0*iTime+uv)*0.01*(1.0/(10.0*cloud_size)));
     // More discrete clouds and sky
     float cloud = smoothstep(1.0-CLOUD_DENSITY,1.0,cloud_e);
     float cloud_fac = cloud * max(0.0,smoothstep(0.0,0.3,horiz));
 
+    vec3 sun_dir = vec3(sin(iTime * sun_speed), cos(iTime * sun_speed), 0.0);
+	float sun_height = dot(sun_dir, vec3(0.0, 1.0, 0.0));
+
+
+	#ifdef PBR_SKY
     ro += vec3(0.0, earth_radius+1e2, 0.0);
 	// "pierce" the atmosphere with the viewing ray
 	float t0, t1;
@@ -304,7 +312,6 @@ vec3 sky(vec3 ro, vec3 rd)
 
 	float march_step = t1 / float(num_samples);
 
-    vec3 sun_dir = vec3(sin(iTime * sun_speed), cos(iTime * sun_speed), 0.0);
 
 	// cosine of angle between view and light directions
 	float mu = dot(rd, sun_dir);
@@ -318,7 +325,7 @@ vec3 sky(vec3 ro, vec3 rd)
 	float phaseR = rayleigh_phase_func(mu);
 	float phaseM =
 #if 1
-		mie_phase(mu);//henyey_greenstein_phase_func(mu);
+		henyey_greenstein_phase_func(mu);
 #else
 		schlick_phase_func(mu);
 #endif
@@ -370,11 +377,20 @@ vec3 sky(vec3 ro, vec3 rd)
 		sun_power *
 		(sumR * phaseR * betaR +
 		sumM * phaseM * betaM * (1.0 + cloud_e));
+	#else
+	float sun_d = dot(sun_dir,rd);
+	vec3 sky_col = mix(
+        vec3(0.4,0.6,1.0),
+        vec3(0.1,0.2,0.7),
+        rd.y
+        );
+	vec3 col = smoothstep(0.0,0.1,sun_height)*sky_col;
+	col += max(0.0,pow(sun_d,128.0));
+	#endif
 
-    float sun_height = dot(sun_dir, vec3(0.0, 1.0, 0.0));
     vec3 stars = vec3(smoothstep(0.8-STAR_DENSITY*0.1,0.8,
 		// They move the same speed as the sun, because both cases are just the Earth spinning
-    	noise(min(vec3(sin(iTime*sun_speed), cos(iTime*sun_speed), 0.0)+rd*20.0,20.0))));
+    	noise(min(sun_dir+rd*20.0,20.0))));
     // We're actually mixing sky_col and stars, but we need to keep them separate for now so the moon can
     //	obscure the stars.
     //vec3 sky_col = sign(horiz)*mix(vec3(0.0), sky_color, smoothstep(-0.6,-0.4,sun_height));
@@ -419,7 +435,7 @@ vec3 sky(vec3 ro, vec3 rd)
     stars = mix(stars, vec3(0.0), moon_s);
     //col = col*0.2+max(col*0.8,moon_c);
 
-    float moon_power = 2.0;// - sun_height;
+    /*float moon_power = 2.0;// - sun_height;
     float phaseR_moon = rayleigh_phase_func(mu_moon);
     float phaseM_moon = henyey_greenstein_phase_func(mu_moon);
     // optical depth (or "average density")
@@ -475,9 +491,10 @@ vec3 sky(vec3 ro, vec3 rd)
     vec3 moon_col = (moon_r *
 		3.0 * moon_c + max(0.0, dot(-moon_dir, sun_dir))) * moon_power *
 		(sumR * phaseR_moon * betaR +
-		sumM * phaseM_moon * betaM * (1.0 + cloud_e));
+		sumM * phaseM_moon * betaM * (1.0 + cloud_e));*/
+	vec3 moon_col = moon_c * dot(moon_n, sun_dir);
     //col += abs(moon_n) * moon_s;//moon_col;
-    col += moon_col;//mix(col, moon_col, moon_s);
+    col += max(vec3(0.0),moon_col);//mix(col, moon_col, moon_s);
 
     col += stars;
     //col += cloud_fac;

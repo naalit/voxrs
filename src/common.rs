@@ -1,10 +1,27 @@
 pub use glm::*;
 use std::sync::Arc;
+use glium::glutin::VirtualKeyCode;
 
 // Should be a power of 2
 pub const CHUNK_SIZE: usize = 16;
 // This is a 'diameter'
 pub const CHUNK_NUM: usize = 24;
+
+// DVORAK
+pub const FORWARD: VirtualKeyCode = VirtualKeyCode::Comma;
+pub const BACK: VirtualKeyCode = VirtualKeyCode::O;
+pub const LEFT: VirtualKeyCode = VirtualKeyCode::A;
+pub const RIGHT: VirtualKeyCode = VirtualKeyCode::E;
+pub const FLY: VirtualKeyCode = VirtualKeyCode::U;
+
+/*
+// QWERTY
+pub const FORWARD: VirtualKeyCode = VirtualKeyCode::W;
+pub const BACK: VirtualKeyCode = VirtualKeyCode::S;
+pub const LEFT: VirtualKeyCode = VirtualKeyCode::A;
+pub const RIGHT: VirtualKeyCode = VirtualKeyCode::D;
+pub const FLY: VirtualKeyCode = VirtualKeyCode::F;
+*/
 
 pub type Block = u16;
 pub type Chunk = Option<[[[Block; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE]>;

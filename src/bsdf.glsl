@@ -1,3 +1,8 @@
+#define SHADOW 1
+#define REFLECTION 1
+#define REFRACTION 1
+#define FOG 1
+
 // https://shaderjvo.blogspot.com/2011/08/van-ouwerkerks-rewrite-of-oren-nayar.html
 vec3 oren_nayar(vec3 from, vec3 to, vec3 normal, MatData mat) {
     // Roughness, A and B
@@ -29,6 +34,7 @@ float schlick_g1(vec3 v, vec3 n, float k) {
 
 // Really a BSDF
 vec3 brdf(vec3 from, vec3 to, vec3 n, MatData mat) {
+    // return vec3(1.0);
     float ior = mat.ior; //1.5;
     float ior_i = 1.0/ior;
     float nDotL = dot(n,to);
@@ -135,12 +141,13 @@ vec3 shade(uint m, vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos, vec3 mask) {
     MatData mat = mat_lookup(m);
 
     vec3 lightDir = major_dir();
-    vec3 c = vec3(1.0);//sky(p,lightDir);
+    vec3 c = sky(p,lightDir);
     vec2 tc =
         ( fract( p.yz ) * mask.x ) +
         ( fract( p.zx ) * mask.y ) +
         ( fract( p.xy ) * mask.z );
     vec3 behind = vec3(0.0);
+    #if REFRACTION
     if (mat.trans > 0.0) {
         vec2 t_;
         vec3 pos_;
@@ -159,16 +166,18 @@ vec3 shade(uint m, vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos, vec3 mask) {
             (abs(n.x) > abs(n.z) ? vec3(1., 0., 0.) : vec3(0., 0., 1.)) :
         	(abs(n.y) > abs(n.z) ? vec3(0., 1., 0.) : vec3(0., 0., 1.)));
 
-        behind = brdf(lightDir,-dir,n,mat_);
+        behind = brdf(lightDir,-dir,n,mat_)*c;
         behind = mix(vec3(0.0),brdf(-dir,-rd,old,mat)*behind,mat.trans);
         n = old;
     }
+    #endif
     vec3 ref = vec3(0.0);
+    #if REFLECTION
     if (mat.roughness < 0.2) {
         vec2 t_;
         vec3 pos_;
         float size_;
-        int iter_ = 2;
+        int iter_ = 4;
         vec3 n_;
 
         vec3 dir = reflect(rd,n);
@@ -189,7 +198,7 @@ vec3 shade(uint m, vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos, vec3 mask) {
                 (abs(n.x) > abs(n.z) ? vec3(1., 0., 0.) : vec3(0., 0., 1.)) :
             	(abs(n.y) > abs(n.z) ? vec3(0., 1., 0.) : vec3(0., 0., 1.)));
 
-            vec3 c_ = max(vec3(0.0),sky(p_,lightDir));
+            vec3 c_ = c;//max(vec3(0.0),sky(p_,lightDir));
 
             ref = (0.1+smoothstep(-0.1,0.3,lightDir.y))*(0.1+ao(pos_,n,tc_))*mat_.color + c_*brdf(lightDir,-dir,n,mat_);
         } else
@@ -199,7 +208,17 @@ vec3 shade(uint m, vec3 ro, vec3 rd, vec2 t, int iter, vec3 pos, vec3 mask) {
         ref *= pow(1.0-mat.roughness,2.0);
         n = old;
     }
-    float shadow = shadow(p+n*0.1,lightDir,0);
-    return
+    #endif
+    float shadow =
+        #if SHADOW
+            shadow(p+n*0.1,lightDir,0);
+        #else
+            1.0;
+        #endif
+    vec3 col =
         (0.1+ao(pos,n,tc)*0.2)*mat.color + shadow*c*brdf(lightDir, -rd, n, mat) + behind + ref;
+    #if FOG
+    col = mix(col,vec3(1.0),smoothstep(128.0,256.0,t.x));
+    #endif
+    return col;
 }

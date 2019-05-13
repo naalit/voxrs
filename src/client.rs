@@ -1,6 +1,7 @@
 use super::chunk::*;
 use super::common::*;
 use super::material::*;
+use num_traits::identities::One;
 use glium::backend::Facade;
 use glium::*;
 use glsl_include::Context as ShaderContext;
@@ -86,14 +87,22 @@ impl Client {
         pos: Vec3,
         channel: (Sender<Vec3>, Receiver<CommandList>),
     ) -> Self {
-        let events_loop = glutin::EventsLoop::new();
-        let wb = glutin::WindowBuilder::new().with_title("Vox.rs");
-        let cb = glutin::ContextBuilder::new().with_vsync(true);
+        let events_loop = if cfg!(target_os = "linux") { glutin::os::unix::EventsLoopExt::new_x11().unwrap() } else { glutin::EventsLoop::new() };
+        let wb = glutin::WindowBuilder::new()
+            .with_title("Vox.rs")
+            .with_fullscreen(Some(events_loop.get_primary_monitor()))
+            .with_decorations(false);
+        let cb = glutin::ContextBuilder::new(); //.with_vsync(true);
         let display = glium::Display::new(wb, cb, &events_loop).unwrap();
         display
             .gl_window()
             .window()
-            .set_cursor(glutin::MouseCursor::Crosshair); //.unwrap();
+            .grab_cursor(true).unwrap();
+        display
+            .gl_window()
+            .window()
+            .hide_cursor(true);//.unwrap();
+            // .set_cursor(glutin::MouseCursor::Crosshair); //.unwrap();
 
         let origin = chunk(pos);
         let block_buf = glium::texture::unsigned_texture3d::UnsignedTexture3d::with_format(
@@ -141,8 +150,12 @@ impl Client {
         let chunk = chunk(pos) - self.origin + CHUNK_NUM as i32 / 2;
         let in_chunk = in_chunk(pos);
         let offset = self.map[chunk.z as usize][chunk.y as usize][chunk.x as usize];
-        if offset.0 == 255 { 0 } else {
-            self.chunks[&offset].map_or(0,|x|x[in_chunk.z as usize][in_chunk.y as usize][in_chunk.x as usize])
+        if offset.0 == 255 {
+            0
+        } else {
+            self.chunks[&offset].map_or(0, |x| {
+                x[in_chunk.z as usize][in_chunk.y as usize][in_chunk.x as usize]
+            })
         }
     }
 
@@ -184,7 +197,13 @@ impl Client {
             &l.1.iter()
                 .flat_map(|x| x.iter())
                 .flat_map(|x| x.iter())
-                .map(|x|if self.chunks[x].is_some() {*x} else {(255,255,255)})
+                .map(|x| {
+                    if self.chunks[x].is_some() {
+                        *x
+                    } else {
+                        (255, 255, 255)
+                    }
+                })
                 // .cloned()
                 .collect::<Vec<(u8, u8, u8)>>(),
         );
@@ -209,27 +228,33 @@ impl Client {
         let indices = glium::index::NoIndices(glium::index::PrimitiveType::TriangleStrip);
 
         let vshader = shader("vert.glsl".to_string(), &[]);
-        let fshader = shader("frag.glsl".to_string(), &["sky.glsl".to_string(), "bsdf.glsl".to_string()]);
+        let fshader = shader(
+            "frag.glsl".to_string(),
+            &["sky.glsl".to_string(), "bsdf.glsl".to_string()],
+        );
 
         let program = glium::Program::from_source(&self.display, &vshader, &fshader, None).unwrap();
 
-        let timer = stopwatch::Stopwatch::start_new();
-        let initial_time = 0.0;/*
-            6.0 // 06:00, in minutes
-            * 60.0 // Seconds
-            ;*/
+        let initial_time = 0.0; /*
+                                6.0 // 06:00, in minutes
+                                * 60.0 // Seconds
+                                ;*/
 
         let mats = Material::into_enum_iter()
             .map(|x| x.mat_data())
             .collect::<Vec<MatData>>();
-        let mat_buf = glium::uniforms::UniformBuffer::empty_unsized_immutable(&self.display, std::mem::size_of::<MatData>()*mats.len()).unwrap();
+        let mat_buf = glium::uniforms::UniformBuffer::empty_unsized_immutable(
+            &self.display,
+            std::mem::size_of::<MatData>() * mats.len(),
+        )
+        .unwrap();
         mat_buf.write(mats.as_slice());
 
         let mut closed = false;
-        let mut mouse = vec2(0.0, 0.0);
-        let mut m_down = false;
         let timer = stopwatch::Stopwatch::start_new();
         let mut last = timer.elapsed_ms();
+        let mut camera_dir = vec3(0.0,0.0,1.0);
+
         while !closed {
             let cur = timer.elapsed_ms();
             let delta = cur - last;
@@ -241,15 +266,6 @@ impl Client {
 
             let res = target.get_dimensions();
             let res = vec2(res.0 as f32, res.1 as f32);
-            let r = 12. * mouse.x / res.x;
-
-            let look_at = vec3(
-                self.pos.x + 5.0 * (0.5 * r).sin(),
-                self.pos.y + 12.0 * mouse.y / res.y,
-                self.pos.z + 5.0 * (0.5 * r).cos(),
-            );
-
-            let camera_dir = normalize(look_at - self.pos);
 
             let camera_up = vec3(0.0, 1.0, 0.0);
             let right = cross(camera_dir, camera_up);
@@ -257,35 +273,25 @@ impl Client {
             events_loop.poll_events(|event| match event {
                 glutin::Event::WindowEvent { event, .. } => match event {
                     glutin::WindowEvent::CloseRequested => closed = true,
-                    glutin::WindowEvent::MouseInput { state, .. } => match state {
-                        glutin::ElementState::Pressed => m_down = true,
-                        glutin::ElementState::Released => m_down = false,
-                    },
-                    glutin::WindowEvent::CursorMoved { position, .. } => {
-                        mouse = vec2(
-                            if m_down { position.x as f32 } else { mouse.x },
-                            if m_down { position.y as f32 } else { mouse.y },
-                        )
-                    }
                     glutin::WindowEvent::KeyboardInput { input, .. } => {
                         if let glutin::ElementState::Released = input.state {
                             match input.virtual_keycode {
-                                Some(glutin::VirtualKeyCode::Comma)
-                                | Some(glutin::VirtualKeyCode::O) => {
+                                Some(FORWARD)
+                                | Some(BACK) => {
                                     self.state.fb = 0.0;
                                 }
                                 Some(glutin::VirtualKeyCode::Space)
                                 | Some(glutin::VirtualKeyCode::LShift) => {
                                     self.state.ud = 0.0;
                                 }
-                                Some(glutin::VirtualKeyCode::E)
-                                | Some(glutin::VirtualKeyCode::A) => {
+                                Some(LEFT)
+                                | Some(RIGHT) => {
                                     self.state.lr = 0.0;
                                 }
                                 Some(glutin::VirtualKeyCode::LControl) => {
                                     self.state.m = 1.0;
                                 }
-                                Some(glutin::VirtualKeyCode::U) => {
+                                Some(FLY) => {
                                     self.state.fly = !self.state.fly;
                                 }
                                 _ => (),
@@ -293,10 +299,10 @@ impl Client {
                         }
                         if let glutin::ElementState::Pressed = input.state {
                             match input.virtual_keycode {
-                                Some(glutin::VirtualKeyCode::Comma) => {
+                                Some(FORWARD) => {
                                     self.state.fb = 1.0;
                                 }
-                                Some(glutin::VirtualKeyCode::O) => {
+                                Some(BACK) => {
                                     self.state.fb = -1.0;
                                 }
                                 Some(glutin::VirtualKeyCode::Space) => {
@@ -306,10 +312,10 @@ impl Client {
                                 Some(glutin::VirtualKeyCode::LShift) => {
                                     self.state.ud = -1.0;
                                 }
-                                Some(glutin::VirtualKeyCode::E) => {
+                                Some(RIGHT) => {
                                     self.state.lr = 1.0;
                                 }
-                                Some(glutin::VirtualKeyCode::A) => {
+                                Some(LEFT) => {
                                     self.state.lr = -1.0;
                                 }
                                 Some(glutin::VirtualKeyCode::LControl) => {
@@ -321,10 +327,14 @@ impl Client {
                     }
                     _ => (),
                 },
-                /*glutin::Event::DeviceEvent { event, .. } => match event {
-                    glutin::DeviceEvent::MouseMotion { delta } => mouse = [mouse[0] + delta.0 as f32, mouse[1] + delta.1 as f32, mouse[2] + delta.0 as f32, mouse[3] + delta.1 as f32],
-                    _ => (),
-                },*/
+                glutin::Event::DeviceEvent { event, .. } => match event {
+                    glutin::DeviceEvent::MouseMotion { delta } => {
+                        let q = glm::ext::rotate(&Matrix4::one(), delta.0 as f32 / res.x * -6.28, camera_up) * camera_dir.extend(1.0);
+                        let q = glm::ext::rotate(&Matrix4::one(), delta.1 as f32 / res.y * -6.28, right) * q;
+                        camera_dir = vec3(q.x,q.y,q.z);
+                },
+                _ => (),
+                },
                 _ => (),
             });
             let new_pos = self.pos
@@ -353,7 +363,7 @@ impl Client {
                 }
             } else {
                 // We're not in the air
-                let block_below = !self.can_move(self.pos-vec3(0.0,0.1,0.0));
+                let block_below = !self.can_move(self.pos - vec3(0.0, 0.2, 0.0));
                 if block_below {
                     if self.state.jump > 0.3 {
                         self.state.try_jump = false;
@@ -366,16 +376,16 @@ impl Client {
                 let initial_y_v = if self.state.try_jump { 5.0 } else { 0.0 }; // m/s; this number was tuned manually, and only provisionally
                 let current_v = initial_y_v - total_g; // m/s
                 let current_m = current_v * (delta as f64 * 0.001 as f64) as f32; // meters
-                let new_pos = self.pos
-                    + vec3(0.0, 1.0, 0.0) * current_m;
+                let new_pos = self.pos + vec3(0.0, 1.0, 0.0) * current_m;
                 if self.can_move(new_pos) {
                     self.pos = new_pos;
-                } else if current_m > 1.0-abs(fract(self.pos.y)) {
-                    // We can get up to insane speeds when falling from heights, so we allow this partial movement
-                    self.pos.y = ceil(self.pos.y)-0.1;
-                } else if current_m < -abs(fract(self.pos.y)) {
-                    self.pos.y = floor(self.pos.y)+0.1;
                 }
+                //  else if current_m > 1.0 - abs(fract(self.pos.y)) {
+                //     // We can get up to insane speeds when falling from heights, so we allow this partial movement
+                //     self.pos.y = ceil(self.pos.y) - 0.1;
+                // } else if current_m < -abs(fract(self.pos.y)) {
+                //     self.pos.y = floor(self.pos.y) + 0.1;
+                // }
                 if !block_below {
                     self.state.jump += (delta as f64 * 0.001 as f64) as f32;
                 }
@@ -393,15 +403,15 @@ impl Client {
                     &indices,
                     &program,
                     &uniform! {
-                       iTime: initial_time + timer.elapsed_ms() as f32 / 1000.0,
-                       iResolution: *res.as_array(),
-                       cameraPos: *self.pos.as_array(),
-                       cameraDir: *camera_dir.as_array(),
-                       cameraUp: *camera_up.as_array(),
-                       chunks: &self.chunk_buf,
-                       blocks: &self.block_buf,
-                       chunk_origin: self.origin_u(),
-                       mat_list: &mat_buf,
+                        iTime: initial_time + timer.elapsed_ms() as f32 / 1000.0,
+                        iResolution: *res.as_array(),
+                        cameraPos: *self.pos.as_array(),
+                        cameraDir: *camera_dir.as_array(),
+                        cameraUp: *camera_up.as_array(),
+                        chunks: &self.chunk_buf,
+                        blocks: &self.block_buf,
+                        chunk_origin: self.origin_u(),
+                        mat_list: &mat_buf,
                     },
                     &Default::default(),
                 )

@@ -29,9 +29,54 @@ out vec4 fragColor;
 
 void mainImage( out vec4 fragColor, in vec2 fragCoord );
 
+// #define COMPARE
+
+// #define REINHARD
+// #define HEJL_DAWSON
+// #define UNCHARTED
+
+#ifdef UNCHARTED
+float A = 0.15;
+float B = 0.50;
+float C = 0.10;
+float D = 0.20;
+float E = 0.02;
+float F = 0.30;
+float W = 11.2;
+
+vec3 uc2_tonemap(vec3 x) {
+    return ((x*(A*x+C*B)+D*E)/(x*(A*x+B)+D*F))-E/F;
+}
+#endif
+
+vec3 tonemap(in vec3 col) {
+    vec3 ret = pow(col,vec3(2.2));
+    #ifdef COMPARE
+    if (gl_FragCoord.x > iResolution.x / 2.0)
+    #endif
+    {
+    #ifdef REINHARD
+    ret /= 1.0 + length(ret);
+    #else
+    #ifdef HEJL_DAWSON
+    vec3 x = max(vec3(0.0),ret-0.004);
+    ret = (x*(6.2*x+0.5))/(x*(6.2*x+1.7)+0.06);
+    #else
+    #ifdef UNCHARTED
+    float bias = 2.0;
+    vec3 cur = uc2_tonemap(bias*ret);
+    vec3 white_scale = 1.0 / uc2_tonemap(vec3(W));
+    ret = cur * white_scale;
+    #endif
+    #endif
+    #endif
+    }
+    return ret;
+}
+
 void main() {
     mainImage(fragColor, gl_FragCoord.xy);
-    fragColor = pow(fragColor, vec4(2.2)); // mon2lin
+    fragColor = vec4(tonemap(fragColor.xyz),1.0);//pow(fragColor, vec4(2.2)); // mon2lin
 }
 
 
@@ -39,7 +84,7 @@ void main() {
 
 
 // The maximum iterations for voxel traversal
-const int MAX_ITER = 512;
+const int MAX_ITER = 256;
 
 #define PI 3.1415926535
 const float IPI = 1./PI;

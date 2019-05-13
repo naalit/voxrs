@@ -185,8 +185,12 @@ impl Server {
     }
 
     pub fn start(&mut self) {
+        let mut timer = stopwatch::Stopwatch::start_new();
         loop {
+            timer.restart();
             self.tick();
+            // 20 ticks per second
+            std::thread::sleep_ms(50_u32.saturating_sub(timer.elapsed_ms() as u32));
         }
     }
 

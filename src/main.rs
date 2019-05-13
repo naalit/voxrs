@@ -6,6 +6,7 @@ extern crate rayon;
 extern crate stopwatch;
 extern crate noise;
 extern crate rand;
+extern crate num_traits;
 extern crate enum_iterator;
 
 mod chunk;
