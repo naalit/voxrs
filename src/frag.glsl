@@ -245,6 +245,10 @@ void mainImage( out vec4 fragColor, in vec2 fragCoord )
     uv *= 2.;
     uv -= 1.;
     uv.y *= iResolution.y / iResolution.x;
+    if (length(uv) < 0.006 && length(uv) > 0.005) {
+        fragColor = vec4(1.0);
+        return;
+    }
 
     vec3 ro = cameraPos;
     vec3 up = cameraUp;

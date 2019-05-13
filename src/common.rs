@@ -1,6 +1,5 @@
-pub use glm::*;
-use std::sync::Arc;
 use glium::glutin::VirtualKeyCode;
+pub use glm::*;
 
 // Should be a power of 2
 pub const CHUNK_SIZE: usize = 16;
@@ -26,10 +25,20 @@ pub const FLY: VirtualKeyCode = VirtualKeyCode::F;
 pub type Block = u16;
 pub type Chunk = Option<[[[Block; CHUNK_SIZE]; CHUNK_SIZE]; CHUNK_SIZE]>;
 
+#[derive(Clone, Debug)]
 pub enum Message {
-    LoadChunks(Vec<IVec3>),
-    UnloadChunks(Vec<(IVec3, Chunk)>),
-    Chunks(Vec<(IVec3, Chunk)>),
+    LoadChunks(Vec<IVec3>),            // Server -> ChunkThread
+    UnloadChunks(Vec<(IVec3, Chunk)>), // Server -> ChunkThread
+    Chunks(Vec<(IVec3, Chunk)>),       // ChunkThread -> Server
+    ChunkMove(
+        Vec<(Chunk, (u32, u32, u32))>,
+        Vec<Vec<Vec<(u8, u8, u8)>>>,
+        IVec3,
+    ), // Server -> Client
+    Move(Vec3),                        // Client -> Server
+    SetBlock(IVec3, u16),              // Client -> Server
+    Join,                              // Client -> Server
+    Leave,                             // Client -> Server
 }
 
 pub fn chunk(pos: Vec3) -> IVec3 {

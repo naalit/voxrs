@@ -1,17 +1,14 @@
 use super::chunk::*;
 use super::client::*;
 use super::common::*;
-use glium::backend::Facade;
-use glm::*;
 use std::collections::HashMap;
 use std::sync::mpsc::*;
-use std::sync::Arc;
 
 // #[derive(Clone)]
 pub struct PlayerData {
     pos: Vec3,
     chunks: Vec<Vec<Vec<(u8, u8, u8)>>>,
-    channel: (Sender<CommandList>, Receiver<Vec3>),
+    channel: (Sender<Message>, Receiver<Message>),
 }
 
 pub struct Server {
@@ -37,7 +34,7 @@ impl Server {
 
     pub fn add_player(&mut self, pos: Vec3) -> Client {
         let chunk_pos = chunk(pos);
-        let chunk_pos = ivec3(chunk_pos.z,chunk_pos.y,chunk_pos.x);
+        let chunk_pos = ivec3(chunk_pos.z, chunk_pos.y, chunk_pos.x);
         let start = chunk_pos - CHUNK_NUM as i32 / 2;
         let chunk_locs = (0..CHUNK_NUM as i32)
             .flat_map(|x| (0..CHUNK_NUM as i32).map(move |y| ivec2(x, y)))
@@ -111,9 +108,10 @@ impl Server {
                     d.min() < 0 || d.max() >= CHUNK_NUM as i32
                 })
                 .for_each(|x| {
-                    self.ref_map
-                        .get_mut(x.as_array())
-                        .map_or_else(|| panic!("Error: tried to unload chunk that wasn't loaded!"), |x| *x -= 1);
+                    self.ref_map.get_mut(x.as_array()).map_or_else(
+                        || panic!("Error: tried to unload chunk that wasn't loaded!"),
+                        |x| *x -= 1,
+                    );
                 });
 
             for (z, page) in new_chunks.iter_mut().enumerate() {
@@ -179,7 +177,7 @@ impl Server {
             player
                 .channel
                 .0
-                .send(CommandList(chunks_load, new_chunks, new_chunk))
+                .send(Message::ChunkMove(chunks_load, new_chunks, new_chunk))
                 .unwrap();
         }
     }
@@ -188,19 +186,42 @@ impl Server {
         let mut timer = stopwatch::Stopwatch::start_new();
         loop {
             timer.restart();
-            self.tick();
+            if !self.tick() {
+                break;
+            }
             // 20 ticks per second
-            std::thread::sleep_ms(50_u32.saturating_sub(timer.elapsed_ms() as u32));
+            std::thread::sleep(std::time::Duration::from_millis(
+                50_u64.saturating_sub(timer.elapsed_ms() as u64),
+            ));
         }
     }
 
-    pub fn tick(&mut self) {
+    pub fn set_block(&mut self, l: IVec3, b: u16) {
+        let l = to_vec3(l) + 0.5;
+        let c = chunk(l);
+        let i = in_chunk(l);
+        // If this unwrap() fails, it's the clients fault for requesting a setblock in a chunk not next to them
+        self.chunk_map[c.as_array()].unwrap()[i.z as usize][i.y as usize][i.x as usize] = b;
+    }
+
+    pub fn tick(&mut self) -> bool {
         let mut p = Vec::new();
         std::mem::swap(&mut p, &mut self.players);
         for i in p.iter_mut() {
             let mut p = i.pos;
             while let Ok(x) = i.channel.1.try_recv() {
-                p = x;
+                match x {
+                    Message::Move(x) => {
+                        p = x;
+                    }
+                    Message::Leave => {
+                        return false;
+                    }
+                    Message::SetBlock(l, b) => {
+                        self.set_block(l, b);
+                    }
+                    _ => panic!("Bad message from client: {:?}", x),
+                }
             }
             self.update(i.pos, p, i);
             i.pos = p;
@@ -225,5 +246,6 @@ impl Server {
                 .send(Message::UnloadChunks(chunks_unload))
                 .unwrap();
         }
+        true
     }
 }

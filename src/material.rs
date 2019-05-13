@@ -1,6 +1,6 @@
 use enum_iterator::IntoEnumIterator;
 
-#[derive(IntoEnumIterator,PartialEq,Clone)]
+#[derive(IntoEnumIterator, PartialEq, Clone)]
 pub enum Material {
     Air = 0,
     Stone,

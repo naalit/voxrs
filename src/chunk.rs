@@ -1,7 +1,6 @@
-use std::collections::HashMap;
 use super::common::*;
-use super::glm::*;
 use super::terrain::*;
+use std::collections::HashMap;
 // use glium::backend::Facade;
 use std::sync::mpsc::*;
 // use std::sync::Arc;
@@ -24,16 +23,18 @@ impl ChunkManager {
                     Message::LoadChunks(locs) => {
                         let mut chunks = Vec::new();
                         for l in locs {
-                            chunks.push((l,self.gen.gen_chunk(l)));
+                            chunks.push((l, self.gen.gen_chunk(l)));
                         }
                         to.send(Message::Chunks(chunks)).unwrap();
                     }
                     Message::UnloadChunks(_) => {
                         // TODO
                     }
-                    _ => ()
+                    _ => (),
                 }
-            } else { break; }
+            } else {
+                break;
+            }
         }
     }
 
@@ -199,11 +200,7 @@ impl Chunks {
 
     fn idx_to_pos(n: usize) -> (usize, usize, usize) {
         let q = n / CHUNK_NUM;
-        (
-            (q / CHUNK_NUM),
-            (q % CHUNK_NUM),
-            (n % CHUNK_NUM),
-        )
+        ((q / CHUNK_NUM), (q % CHUNK_NUM), (n % CHUNK_NUM))
     }
 
     pub fn to_uniform(&self) -> ChunksU {
@@ -222,7 +219,8 @@ impl Chunks {
                     for (y, row_y) in row_x.iter().enumerate() {
                         for (x, b) in row_y.iter().enumerate() {
                             // assert!(p.0 <= s*CHUNK_SIZE - CHUNK_SIZE, "{}", p.0);
-                            c.blocks[p.2*CHUNK_SIZE + z][p.1*CHUNK_SIZE + y][p.0*CHUNK_SIZE + x] = *b;
+                            c.blocks[p.2 * CHUNK_SIZE + z][p.1 * CHUNK_SIZE + y]
+                                [p.0 * CHUNK_SIZE + x] = *b;
                         }
                     }
                 }
@@ -233,9 +231,9 @@ impl Chunks {
             for (y, row_y) in row_x.iter().enumerate() {
                 for (x, &n) in row_y.iter().enumerate() {
                     // if self.chunks[n].is_some() {
-                        let p = Self::idx_to_pos(n);
-                        let p = (p.0 as u8, p.1 as u8, p.2 as u8);
-                        c.chunks[z][y][x] = p;
+                    let p = Self::idx_to_pos(n);
+                    let p = (p.0 as u8, p.1 as u8, p.2 as u8);
+                    c.chunks[z][y][x] = p;
                     // } else {
                     //     c.chunks[z][y][x] = (255,255,255);
                     // }
@@ -246,7 +244,7 @@ impl Chunks {
     }
 
     /// Keeps the original chunks, storing them with their offsets in a HashMap
-    pub fn to_uniform_plus(&self) -> (ChunksU,HashMap<(u8,u8,u8),Chunk>) {
+    pub fn to_uniform_plus(&self) -> (ChunksU, HashMap<(u8, u8, u8), Chunk>) {
         let mut c = ChunksU::new();
         let mut m = HashMap::new();
         // let s = (self.chunks.len() as f32).cbrt() as usize;
@@ -263,7 +261,8 @@ impl Chunks {
                     for (y, row_y) in row_x.iter().enumerate() {
                         for (x, b) in row_y.iter().enumerate() {
                             // assert!(p.0 <= s*CHUNK_SIZE - CHUNK_SIZE, "{}", p.0);
-                            c.blocks[p.2*CHUNK_SIZE + z][p.1*CHUNK_SIZE + y][p.0*CHUNK_SIZE + x] = *b;
+                            c.blocks[p.2 * CHUNK_SIZE + z][p.1 * CHUNK_SIZE + y]
+                                [p.0 * CHUNK_SIZE + x] = *b;
                         }
                     }
                 }
@@ -276,22 +275,22 @@ impl Chunks {
                     let p = Self::idx_to_pos(n);
                     let p = (p.0 as u8, p.1 as u8, p.2 as u8);
                     // if self.chunks[n].is_some() {
-                        c.chunks[z][y][x] = p;
+                    c.chunks[z][y][x] = p;
                     // } else {
                     //     c.chunks[z][y][x] = (255,255,255);
                     // }
-                    m.insert((p.2,p.1,p.0), self.chunks[n]);
+                    m.insert((p.2, p.1, p.0), self.chunks[n]);
                 }
             }
         }
-    (c,m)
+        (c, m)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use rand::prelude::*;
     use super::*;
+    use rand::prelude::*;
 
     #[test]
     fn idx_to_pos() {
@@ -320,7 +319,11 @@ mod tests {
         }
         let mut r = thread_rng();
         for _ in 0..100 {
-            let x = uvec3(r.gen::<u16>() as u32, r.gen::<u16>() as u32, r.gen::<u16>() as u32);
+            let x = uvec3(
+                r.gen::<u16>() as u32,
+                r.gen::<u16>() as u32,
+                r.gen::<u16>() as u32,
+            );
             assert_eq!(world_to_chunk(origin, chunk_to_world(origin, x)), x);
         }
     }
