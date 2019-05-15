@@ -53,7 +53,7 @@ impl Server {
                 self.ref_map.insert(*l.as_array(), 0);
             }
         }
-        let mut chunks = Chunks::new();
+        let mut chunks = super::chunk::Chunks::new();
         let mut i = 0;
         for (z, page) in chunks.map.iter_mut().enumerate() {
             for (y, row) in page.iter_mut().enumerate() {
@@ -199,6 +199,7 @@ impl Server {
     pub fn set_block(&mut self, l: IVec3, b: u16) {
         let l = to_vec3(l) + 0.5;
         let c = chunk(l);
+        let c = ivec3(c.z,c.y,c.x);
         let i = in_chunk(l);
         // If this unwrap() fails, it's the clients fault for requesting a setblock in a chunk not next to them
         self.chunk_map[c.as_array()].unwrap()[i.z as usize][i.y as usize][i.x as usize] = b;

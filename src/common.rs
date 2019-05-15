@@ -1,5 +1,6 @@
 use glium::glutin::VirtualKeyCode;
 pub use glm::*;
+pub use itertools::*;
 
 // Should be a power of 2
 pub const CHUNK_SIZE: usize = 16;

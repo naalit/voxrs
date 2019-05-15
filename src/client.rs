@@ -143,6 +143,10 @@ impl Client {
         }
     }
 
+    pub fn get_blocki(&self, pos: IVec3) -> u16 {
+        self.get_block(to_vec3(pos) + 0.5)
+    }
+
     pub fn get_block(&self, pos: Vec3) -> u16 {
         let chunk = chunk(pos) - self.origin + CHUNK_NUM as i32 / 2;
         let in_chunk = in_chunk(pos);
@@ -292,6 +296,72 @@ impl Client {
             }
         }
         None
+    }
+
+    /// In-place moves ourself as far as we can, up to `d`, in normalized direction `dir`
+    pub fn do_move(&mut self, dir: Vec3, d: f32) {
+        if d == 0.0 {
+            return;
+        };
+
+        let i = [self.pos];
+        let i = i
+            .iter()
+            .flat_map(|x| vec![*x + vec3(0.0, 0.5, 0.0), *x - vec3(0.0, 1.5, 0.0)])
+            .flat_map(|x| vec![x + vec3(0.4, 0.0, 0.0), x - vec3(0.4, 0.0, 0.0)])
+            .flat_map(|x| vec![x + vec3(0.0, 0.0, 0.4), x - vec3(0.0, 0.0, 0.4)])
+            .map(|x| to_ivec3(x))
+            .unique_by(|x| *x.as_array());
+        let i = i.collect::<Vec<IVec3>>();
+
+        // for x in i.iter() {
+        //     if self.get_blocki(*x) != 0 {
+        //         println!("Error: player inside block!");
+        //     }
+        // }
+
+        let full_pos = self.pos + dir * d;
+
+        let i2 = [full_pos];
+        let i2 = i2
+            .iter()
+            .flat_map(|x| vec![*x + vec3(0.0, 0.5, 0.0), *x - vec3(0.0, 1.5, 0.0)])
+            .flat_map(|x| vec![x + vec3(0.4, 0.0, 0.0), x - vec3(0.4, 0.0, 0.0)])
+            .flat_map(|x| vec![x + vec3(0.0, 0.0, 0.4), x - vec3(0.0, 0.0, 0.4)])
+            .map(|x| to_ivec3(x))
+            .unique_by(|x| *x.as_array())
+            .filter(|x| !i.contains(x));
+
+        if i2.map(|x| self.get_blocki(x)).all(|x| x == 0) {
+            self.pos = full_pos;
+        } else {
+            let dir = dir * sign(d);
+            let c = ceil(self.pos) - vec3(0.4, 0.5, 0.4); // Our size relative to the camera
+            let f = floor(self.pos) + vec3(0.4, 0.5, 0.4);
+            self.pos = vec3(
+                if dir.x > c.x - self.pos.x {
+                    c.x
+                } else if dir.x < f.x - self.pos.x {
+                    f.x
+                } else {
+                    self.pos.x
+                },
+                if dir.y > c.y - self.pos.x {
+                    c.y
+                } else if dir.y < f.y - self.pos.y {
+                    f.y
+                } else {
+                    self.pos.y
+                },
+                if dir.z > c.z - self.pos.x {
+                    c.z
+                } else if dir.z < f.z - self.pos.z {
+                    f.z
+                } else {
+                    self.pos.z
+                },
+            )
+        }
     }
 
     pub fn can_move(&self, new_pos: Vec3) -> bool {
@@ -503,30 +573,22 @@ impl Client {
                 },
                 _ => (),
             });
-            let new_pos = self.pos
-                + (vec3(1.0, 0.0, 1.0) * camera_dir * self.state.fb)
-                    * self.state.m
-                    * (delta as f64 * MOVE_SPEED as f64) as f32;
-            if self.can_move(new_pos) {
-                self.pos = new_pos;
-            }
-            let new_pos = self.pos
-                + (vec3(1.0, 0.0, 1.0) * right * self.state.lr)
-                    * self.state.m
-                    * (delta as f64 * MOVE_SPEED as f64) as f32;
-            if self.can_move(new_pos) {
-                self.pos = new_pos;
-            }
+
+            self.do_move(
+                vec3(1.0, 0.0, 1.0) * camera_dir,
+                self.state.fb * self.state.m * (delta as f64 * MOVE_SPEED as f64) as f32,
+            );
+            self.do_move(
+                vec3(1.0, 0.0, 1.0) * right,
+                self.state.lr * self.state.m * (delta as f64 * MOVE_SPEED as f64) as f32,
+            );
 
             // Jumping
             if self.state.fly {
-                let new_pos = self.pos
-                    + (vec3(0.0, 1.0, 0.0) * self.state.ud)
-                        * self.state.m
-                        * (delta as f64 * MOVE_SPEED as f64) as f32;
-                if self.can_move(new_pos) {
-                    self.pos = new_pos;
-                }
+                self.do_move(
+                    vec3(0.0, 1.0, 0.0),
+                    self.state.ud * self.state.m * (delta as f64 * MOVE_SPEED as f64) as f32,
+                );
             } else {
                 // We're not in the air
                 let block_below = !self.can_move(self.pos - vec3(0.0, 0.2, 0.0));
@@ -542,16 +604,9 @@ impl Client {
                 let initial_y_v = if self.state.try_jump { 5.0 } else { 0.0 }; // m/s; this number was tuned manually, and only provisionally
                 let current_v = initial_y_v - total_g; // m/s
                 let current_m = current_v * (delta as f64 * 0.001 as f64) as f32; // meters
-                let new_pos = self.pos + vec3(0.0, 1.0, 0.0) * current_m;
-                if self.can_move(new_pos) {
-                    self.pos = new_pos;
-                }
-                //  else if current_m > 1.0 - abs(fract(self.pos.y)) {
-                //     // We can get up to insane speeds when falling from heights, so we allow this partial movement
-                //     self.pos.y = ceil(self.pos.y) - 0.1;
-                // } else if current_m < -abs(fract(self.pos.y)) {
-                //     self.pos.y = floor(self.pos.y) + 0.1;
-                // }
+
+                self.do_move(vec3(0.0,1.0,0.0), current_m);
+
                 if !block_below {
                     self.state.jump += (delta as f64 * 0.001 as f64) as f32;
                 }

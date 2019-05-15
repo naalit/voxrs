@@ -8,6 +8,7 @@ extern crate num_traits;
 extern crate rand;
 extern crate rayon;
 extern crate stopwatch;
+extern crate itertools;
 
 mod chunk;
 mod client;
