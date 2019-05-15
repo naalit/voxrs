@@ -223,21 +223,14 @@ impl Client {
                 let in_chunk = ipos % CHUNK_SIZE as i32;
                 let b = c[in_chunk.z as usize][in_chunk.y as usize][in_chunk.x as usize];
                 if b != 0 {
-                    let t = if side_dist.x < side_dist.y {
-                        if side_dist.x < side_dist.z {
-                            side_dist.x - tdelta.x
-                        } else {
-                            side_dist.z - tdelta.z
-                        }
-                    } else {
-                        if side_dist.y < side_dist.z {
-                            side_dist.y - tdelta.y
-                        } else {
-                            side_dist.z - tdelta.z
-                        }
-                    };
+                    let mn = to_vec3(ipos);
+                    let mx = mn + 1.0;
+                    let t1 = (mn - ro_chunk) / rd;
+                    let t2 = (mx - ro_chunk) / rd;
+                    let tmin = min(t1, t2);
+                    let t = tmin.max();
                     let p = ro_chunk + rd * t;
-                    let n = p - to_vec3(ipos);
+                    let n = p - (mn + 0.5);
                     let n = to_ivec3(sign(n))
                         * if abs(n.x) > abs(n.y) {
                             // Not y
@@ -484,6 +477,7 @@ impl Client {
             let right = cross(camera_dir, camera_up);
             let q = glm::ext::rotate(&Matrix4::one(), ry / res.y * -6.28, right) * q;
             let camera_dir = normalize(vec3(q.x, q.y, q.z));
+            let camera_up = cross(right, camera_dir);
 
             events_loop.poll_events(|event| match event {
                 glutin::Event::WindowEvent { event, .. } => match event {
