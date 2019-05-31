@@ -5,6 +5,7 @@ uniform uvec2 resolution;
 uniform vec3 camera_dir;
 uniform vec3 camera_up;
 uniform vec3 camera_right;
+uniform vec3 camera_pos;
 
 out vec4 frag_color;
 
@@ -20,7 +21,7 @@ void main() {
         + camera_up * uv.y // Offset this much up
         + camera_right * uv.x // And this much right
     );
-    vec3 ro = vec3(0.0,0.0,0.0);
+    vec3 ro = camera_pos;//vec3(0.0,0.0,0.0);
 
     vec2 t;
     int i;

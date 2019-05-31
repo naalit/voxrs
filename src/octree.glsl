@@ -36,6 +36,7 @@ bool stack_empty() { return stack_ptr == 0; }
 #else
 struct ST {
     Node parent;
+    uint parent_pointer;
     vec3 pos;
     vec3 idx;
     float size;
@@ -58,10 +59,6 @@ vec2 isect(in vec3 ro, in vec3 rdi, in vec3 pos, in float size, out vec3 tmid, o
 }
 
 bool trace(in vec3 ro, in vec3 rd, out vec2 t, out int i, out vec3 pos) {
-    //return tree[0] == Node(uint[8](3,0,3,3,3,3,3,3));
-    // vec3 a,b;
-    // vec2 q = isect(ro, 1.0/rd, vec3(3.0,-2.0,6.0), 1.0, a,b);
-    // return q.x < q.y;
     #ifndef STACKLESS
     stack_reset();
     #endif
@@ -79,13 +76,19 @@ bool trace(in vec3 ro, in vec3 rd, out vec2 t, out int i, out vec3 pos) {
     float h = t.y;
 
     // If the minimum is before the middle in this axis, we need to go to the first one (-rd)
-    vec3 idx = mix(-tstep, tstep, lessThanEqual(tmid, vec3(t.x)));
+    //vec3 idx = mix(-tstep, tstep, lessThanEqual(tmid, vec3(t.x)));
+
+    bvec3 q = lessThanEqual(tmid, vec3(t.x));
+    vec3 idx = mix(-tstep, tstep, q);
+    vec3 tq = mix(tmid, tmax, q); // tmax of the resulting voxel
+    idx = mix(-idx, idx, greaterThanEqual(tq, vec3(0))); // Don't worry about voxels behind `ro`
     uint uidx;
     float size = root_size * 0.5;
     pos += 0.5 * size * idx;
     Node parent = tree[0];
+    uint parent_pointer = 0;
     bool c = true;
-    ST s = ST(parent,pos,idx,size,h);
+    ST s = ST(parent,parent_pointer,pos,idx,size,h);
 
     for (i = 0; i < 256; i++) {
         t = isect(ro, rdi, s.pos, s.size, tmid, tmax);
@@ -102,9 +105,13 @@ bool trace(in vec3 ro, in vec3 rd, out vec2 t, out int i, out vec3 pos) {
                     stack_push(s);
                 #endif
                 s.h = t.y;
-                s.parent = tree[node >> 1];
+                s.parent_pointer += node >> 1;
+                s.parent = tree[s.parent_pointer];
                 s.size *= 0.5;
-                s.idx = mix(-tstep, tstep, lessThanEqual(tmid, vec3(t.x)));
+                q = lessThanEqual(tmid, vec3(t.x));
+                s.idx = mix(-tstep, tstep, q);
+                tq = mix(tmid, tmax, q); // tmax of the resulting voxel
+                s.idx = mix(-s.idx, s.idx, greaterThanEqual(tq, vec3(0))); // Don't worry about voxels behind `ro`
                 s.pos += 0.5 * s.size * s.idx;
                 continue;
             }
@@ -135,10 +142,11 @@ bool trace(in vec3 ro, in vec3 rd, out vec2 t, out int i, out vec3 pos) {
                 return false;
 
             s.parent = tree[0];
+            s.parent_pointer = 0;
             float nh = t.y;
             for (int j = 0; j < 100; j++) { // J is there just in case
                 s.size *= 0.5;
-                s.idx = mix(vec3(-1),vec3(1),greaterThan(target,s.pos));
+                s.idx = sign(target-s.pos+0.0001); // Add 0.0001 to avoid zeros
                 s.pos += s.idx * s.size * 0.5;
                 t = isect(ro, rdi, s.pos, s.size, tmid, tmax);
 
@@ -146,7 +154,8 @@ bool trace(in vec3 ro, in vec3 rd, out vec2 t, out int i, out vec3 pos) {
                 if (t.y > s.h) {
                     uidx = u_idx(s.idx);
                     node = s.parent.pointer[uidx];
-                    s.parent = tree[node >> 1];
+                    s.parent_pointer += node >> 1;
+                    s.parent = tree[s.parent_pointer];
                     nh = t.y;
                 } else break;
             }
@@ -157,14 +166,7 @@ bool trace(in vec3 ro, in vec3 rd, out vec2 t, out int i, out vec3 pos) {
 
             s = stack_pop();
             #endif
-            /*parent = s.parent;
-            pos = s.pos;
-            idx = s.idx;
-            size = s.size;
-            // if (size == root_size*0.5)
-            //     return false;
 
-            h = s.h;//100000.0;*/
             c = false;
             continue;
         }
