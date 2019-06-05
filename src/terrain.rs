@@ -1,6 +1,6 @@
 extern crate noise;
 use noise::*;
-use crate::chunk::*;
+use crate::common::*;
 //use super::chunk::*;
 use glm::*;
 // use rayon::prelude::*;
@@ -16,8 +16,53 @@ impl Gen {
             noise: HybridMulti::new().set_seed(1),
         }
     }
+
     pub fn dist(&self, x: Vec3) -> f32 {
         0.4 * (x.y + self.noise.get([x.x as f64 * 0.2, x.z as f64 * 0.2]) as f32)
+    }
+
+    pub fn gen(&self, pos: IVec3) -> Vec<Node> {
+        let levels = 4;
+        let mut stack: Vec<ST> = vec![];
+        let d_corner = 0.75_f32.sqrt();
+
+        let mut tree: Vec<Node> = Vec::new();
+        for i in 0.. {
+            let (pos, root, idx, parent, scale) =
+                if i == 0 { (chunk_to_world(pos), true, vec3(0.0,0.0,0.0), 0, 0) }
+                else if !stack.is_empty() { let s = stack.pop().unwrap(); (s.pos, false, s.idx, s.parent, s.scale) }
+                else { break };
+
+                let mut v = Node { pointer: [0; 8] };
+                let size = 2.0_f32.powf(-scale as f32) * CHUNK_SIZE * 0.5; // Next level's size
+                for j in 0..8 {
+                    let jdx = Node::position(j);
+                    let np = pos + jdx * size * 0.5;
+
+                    let d = self.dist(np);
+                    if scale >= levels {
+                        if d > size * d_corner {
+                            v.pointer[j] = 0;
+                        } else {
+                            v.pointer[j] = 0b10;
+                        }
+                    } else if d > size * d_corner {
+                        //v.leaf[j] = true;
+                        v.pointer[j] = 0;
+                    } else if d < -size * d_corner {
+                        //v.leaf[j] = true;
+                        v.pointer[j] = 0b10;
+                    } else {
+                        stack.push(ST{parent: i, idx: jdx, pos: np, scale: scale+1 });
+                    }
+                }
+                if !root {
+                    let uidx = Node::idx(idx);
+                    tree[parent].pointer[uidx] = (((i - parent) as u32) << 1) | 1;
+                }
+                tree.push(v);
+        }
+        tree
     }
 }
 

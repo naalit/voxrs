@@ -10,6 +10,9 @@ buffer octree_buffer {
     Node tree[];
 };
 
+uniform vec3 origin;
+uniform float root_size;
+
 uint u_idx(vec3 idx) {
     return 0u
         | uint(idx.x > 0.0) << 2
@@ -66,8 +69,8 @@ bool trace(in vec3 ro, in vec3 rd, out vec2 t, out int i, out vec3 pos) {
     vec3 tstep = sign(rd);
     vec3 rdi = 1.0 / rd; // Inverse for isect
 
-    float root_size = 8.0;
-    vec3 root_pos = vec3(2,-2,4);
+    //float root_size = 8.0;
+    vec3 root_pos = origin;//vec3(2,-2,4);
     pos = root_pos;
 
     vec3 tmid, tmax;

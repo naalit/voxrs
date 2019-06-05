@@ -12,12 +12,18 @@ use glm::*;
 use glsl_include::Context as ShaderContext;
 use num_traits::identities::*;
 
+mod common;
+use common::*;
 mod input;
 use input::*;
 mod chunk;
 use chunk::*;
 mod terrain;
 use terrain::*;
+mod server;
+use server::*;
+mod client;
+use client::*;
 
 #[derive(Copy, Clone)]
 struct Vertex {
@@ -76,14 +82,32 @@ fn main() {
     octree_buffer.write(octree.as_slice());
 */
 
-    let mut client = ClientData::new(&display);
-    client.load_chunks(vec3(0.0,0.0,0.0), //vec![(ivec3(0,0,0),generate(ivec3(1,0,0)))]);
-        (0..2).flat_map(|x| (0..2).flat_map(move |y| (0..2).map(move |z| ivec3(x,y,z)))).map(|x| (x, generate(x))).collect());
+    let mut camera_pos = vec3(4.0, 4.0, 4.0);
+
+    let (conn_client, conn_server) = Connection::local();
+    let mut client = Client::new(&display, conn_client, camera_pos);
+    std::thread::spawn(move || {
+        let mut server = Server::new();
+        server.join(conn_server, camera_pos);
+        server.run();
+    });
+
+    //client.load_chunks( //vec![(ivec3(0,0,0),generate(ivec3(1,0,0)))]);
+    //    (0..2).flat_map(|x| (0..2).flat_map(move |y| (0..2).map(move |z| ivec3(x,y,z)))).map(|x| (x, generate(x))).collect());
+    /*
     println!("{:?}", client.root);
     println!("{:?}", client.map);
+    */
+
+    /*
+    let (a,b) = std::sync::mpsc::channel();
+    let (c,d) = std::sync::mpsc::channel();
+    let q = ChunkThread::new(a,d);
+
+    conn_server.send(Message::Chunks((-1..1).flat_map(|x| (-1..1).flat_map(move |y| (0..2).map(move |z| ivec3(x,y,z)))).map(|x| (x, q.gen.gen(x))).collect())).unwrap();
+    */
 
     let (mut rx, mut ry) = (0.0, 0.0);
-    let mut camera_pos = vec3(0.0, 1.0, 0.0);
     let mut timer = stopwatch::Stopwatch::start_new();
 
     let mut moving = vec3(0.0, 0.0, 0.0); // vec3(forwards, up, right)
@@ -91,7 +115,7 @@ fn main() {
     let mut open = true;
     while open {
         let delta = timer.elapsed_ms() as f64 / 1000.0;
-        println!("{:.1} FPS", 1.0/delta);
+        //println!("{:.1} FPS", 1.0/delta);
         timer.restart();
         let mut target = display.draw();
         target.clear_color(0.0, 0.0, 0.0, 1.0);
@@ -123,10 +147,17 @@ fn main() {
                     camera_up: *camera_up.as_array(),
                     camera_right: *camera_right.as_array(),
                     camera_pos: *camera_pos.as_array(),
+                    origin: client.origin_uniform(),
+                    root_size: client.root_size,
                 },
                 &Default::default(),
             )
             .unwrap();
+
+        // Most computation should go after this point, while the GPU is rendering
+
+        client.update(camera_pos);
+        camera_pos = client.pos();
 
         events_loop.poll_events(|event| match event {
             glutin::Event::WindowEvent {
