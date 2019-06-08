@@ -1,4 +1,9 @@
 #define STACKLESS
+#define START_OUTSIDE
+
+#define PRE_ITER 2
+
+#define MAX_ITER 256
 
 struct Node { // 256-bit
      // The last bit in each pointer is the nonleaf mask, so x & 1 is nonleaf and x >> 1 is pointer
@@ -25,6 +30,7 @@ const int MAX_LEVELS = 8;
 
 struct ST {
     Node parent;
+    uint parent_pointer;
     vec3 pos;
     vec3 idx;
     float size;
@@ -61,6 +67,30 @@ vec2 isect(in vec3 ro, in vec3 rdi, in vec3 pos, in float size, out vec3 tmid, o
     return vec2(max(tmin.x, max(tmin.y, tmin.z)), min(tmax.x, min(tmax.y, tmax.z)));
 }
 
+uint get_voxel(in vec3 target) {
+    float size = root_size;
+    vec3 pos = origin;
+    vec3 idx;
+
+    Node parent = tree[0];
+    uint parent_pointer = 0;
+    for (int j = 0; j < 100; j++) { // J is there just in case
+        size *= 0.5;
+        idx = sign(target-pos+0.0001); // Add 0.0001 to avoid zeros
+        pos += idx * size * 0.5;
+
+        uint uidx = u_idx(idx);
+        uint node = parent.pointer[uidx];
+
+        // We have more nodes to traverse within this one
+        if ((node & 1u) > 0) {
+            parent_pointer += node >> 1;
+            parent = tree[parent_pointer];
+        } else return node;
+    }
+    return 0u;
+}
+
 bool trace(in vec3 ro, in vec3 rd, out vec2 t, out int i, out vec3 pos) {
     #ifndef STACKLESS
     stack_reset();
@@ -80,7 +110,7 @@ bool trace(in vec3 ro, in vec3 rd, out vec2 t, out int i, out vec3 pos) {
 
     // If the minimum is before the middle in this axis, we need to go to the first one (-rd)
     //vec3 idx = mix(-tstep, tstep, lessThanEqual(tmid, vec3(t.x)));
-
+    #ifdef START_OUTSIDE
     bvec3 q = lessThanEqual(tmid, vec3(t.x));
     vec3 idx = mix(-tstep, tstep, q);
     vec3 tq = mix(tmid, tmax, q); // tmax of the resulting voxel
@@ -90,10 +120,40 @@ bool trace(in vec3 ro, in vec3 rd, out vec2 t, out int i, out vec3 pos) {
     pos += 0.5 * size * idx;
     Node parent = tree[0];
     uint parent_pointer = 0;
+
+    #else
+
+    bvec3 q;
+    vec3 idx;
+    vec3 tq;
+    uint uidx;
+    float size = root_size;
+    Node parent = tree[0];
+    uint parent_pointer = 0;
+
+    vec3 target = ro+max(0.0,t.x)*rd;
+    for (int j = 0; j < PRE_ITER; j++) { // J is there just in case
+        size *= 0.5;
+        idx = sign(target-pos+0.0001); // Add 0.0001 to avoid zeros
+        pos += idx * size * 0.5;
+
+        uidx = u_idx(idx);
+        uint node = parent.pointer[uidx];
+
+        // We have more nodes to traverse within this one
+        if ((node & 1u) > 0) {
+            parent_pointer += node >> 1;
+            parent = tree[parent_pointer];
+        } else break;
+    }
+    t = isect(ro, rdi, pos, size, tmid, tmax);
+    h = t.y;
+    #endif
+
     bool c = true;
     ST s = ST(parent,parent_pointer,pos,idx,size,h);
 
-    for (i = 0; i < 256; i++) {
+    for (i = 0; i < MAX_ITER; i++) {
         t = isect(ro, rdi, s.pos, s.size, tmid, tmax);
 
         uidx = u_idx(s.idx);

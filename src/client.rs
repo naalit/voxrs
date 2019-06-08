@@ -195,6 +195,7 @@ impl Client {
 
     /// Recreates the root node to incorporate newly loaded chunks
     fn create_root(&mut self) {
+        // Find the extent of the root in each direction
         let mut h = ivec3(-1000000,-1000000,-1000000);
         let mut l = ivec3(1000000,1000000,1000000);
         for i in self.chunks.keys() {
@@ -210,8 +211,8 @@ impl Client {
         let h = chunk_to_world(h);
         let l = chunk_to_world(l);
 
-        self.origin = floor((h+l)*0.5/CHUNK_SIZE)*CHUNK_SIZE + CHUNK_SIZE * 0.5;
-        self.root_size = abs(h-l).max() + CHUNK_SIZE;
+        self.origin = chunk_to_world(world_to_chunk((h+l)*0.5)) + CHUNK_SIZE * 0.5;
+        self.root_size = abs(h-l).max() + CHUNK_SIZE; // Add two halves of a chunk
         self.root_size = exp2(ceil(log2(self.root_size))); // Round up to a power of 2
 
         self.root = self.create_node(self.origin, self.root_size, 0);

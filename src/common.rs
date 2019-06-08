@@ -10,8 +10,8 @@ use std::sync::mpsc::*;
 pub const CHUNK_NUM: UVec3 = Vector3 { x: 8, y: 8, z: 8 };
 pub const CHUNK_NUM_I: IVec3 = IVec3 { x: CHUNK_NUM.x as i32 / 2, y: CHUNK_NUM.y as i32 / 2, z: CHUNK_NUM.z as i32 / 2 };
 
-pub const CHUNK_SIZE: f32 = 2.0;
-pub const ROOT_SIZE: f32 = 2.0 * 8.0;
+pub const CHUNK_SIZE: f32 = 16.0;
+pub const ROOT_SIZE: f32 = 16.0 * 8.0;
 
 #[derive(Copy, Clone, Debug)]
 pub struct Node {

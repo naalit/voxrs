@@ -18,11 +18,11 @@ impl Gen {
     }
 
     pub fn dist(&self, x: Vec3) -> f32 {
-        0.4 * (x.y + self.noise.get([x.x as f64 * 0.2, x.z as f64 * 0.2]) as f32)
+        0.4 * (x.y + 6.0 * self.noise.get([x.x as f64 * 0.02, x.z as f64 * 0.02]) as f32)
     }
 
     pub fn gen(&self, pos: IVec3) -> Vec<Node> {
-        let levels = 4;
+        let levels = log2(CHUNK_SIZE) as i32 - 1;
         let mut stack: Vec<ST> = vec![];
         let d_corner = 0.75_f32.sqrt();
 

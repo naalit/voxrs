@@ -82,7 +82,7 @@ fn main() {
     octree_buffer.write(octree.as_slice());
 */
 
-    let mut camera_pos = vec3(4.0, 4.0, 4.0);
+    let mut camera_pos = vec3(4.0, 16.0, 4.0);
 
     let (conn_client, conn_server) = Connection::local();
     let mut client = Client::new(&display, conn_client, camera_pos);
@@ -115,7 +115,7 @@ fn main() {
     let mut open = true;
     while open {
         let delta = timer.elapsed_ms() as f64 / 1000.0;
-        //println!("{:.1} FPS", 1.0/delta);
+        println!("{:.1} FPS", 1.0/delta);
         timer.restart();
         let mut target = display.draw();
         target.clear_color(0.0, 0.0, 0.0, 1.0);
@@ -199,7 +199,7 @@ fn main() {
             },
             _ => (),
         });
-        camera_pos = camera_pos + camera_dir * moving.x * delta as f32;
+        camera_pos = camera_pos + camera_dir * moving.x * delta as f32 * 8.0;
 
         target.finish().unwrap();
     }

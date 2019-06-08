@@ -28,5 +28,5 @@ void main() {
     vec3 pos;
     bool b = trace(ro,rd,t,i,pos);
 
-    frag_color = vec4(b) * vec4(shade(ro,rd,t,pos),1.0);// * vec4(t.x*0.1);//vec4(i)/128.0;//*/vec4(i)/64.0;///*vec4(b)  vec4(i)/64.0;/*/vec4(t*0.01,0.0,1.0);
+    frag_color = vec4(vec3(b) * shade(ro,rd,t,pos),1.0);// * vec4(t.y*0.001);//vec4(i)/128.0;//*/vec4(i)/32.0;///*vec4(b)  vec4(i)/64.0;/*/vec4(t*0.01,0.0,1.0);
 }
