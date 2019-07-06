@@ -14,27 +14,15 @@ use num_traits::identities::*;
 
 mod common;
 use common::*;
-mod input;
-use input::*;
 mod chunk;
-use chunk::*;
-mod terrain;
-use terrain::*;
-mod server;
-use server::*;
 mod client;
+mod input;
+mod mesh;
+mod server;
+mod terrain;
+
 use client::*;
-
-#[derive(Copy, Clone)]
-struct Vertex {
-    pos: [f32; 2],
-}
-
-implement_vertex!(Vertex, pos);
-
-fn vert(x: f32, y: f32) -> Vertex {
-    Vertex { pos: [x, y] }
-}
+use server::*;
 
 /// Load a shader, replacing any ``#include` declarations to files in `includes`
 fn shader(path: String, includes: &[String]) -> String {
@@ -57,149 +45,35 @@ fn main() {
     // Wayland doesn't allow cursor grabbing
     let mut events_loop = glutin::os::unix::EventsLoopExt::new_x11().unwrap();
     let wb = glutin::WindowBuilder::new().with_title("Vox.rs 2");
-    let cb = glutin::ContextBuilder::new();
+    let cb = glutin::ContextBuilder::new().with_depth_buffer(24);
     let display = glium::Display::new(wb, cb, &events_loop).unwrap();
-
-    // A screen-filling triangle is slightly faster than a quad
-    let vertices = vec![vert(-3.0, -3.0), vert(3.0, -3.0), vert(0.0, 3.0)];
-    let vbuff = glium::VertexBuffer::new(&display, &vertices).unwrap();
-    let indices = glium::index::NoIndices(glium::index::PrimitiveType::TriangleStrip);
-
-    let vshader = shader("vert.glsl".to_string(), &[]);
-    let fshader = shader(
-        "frag.glsl".to_string(),
-        &["octree.glsl".to_string(), "shade.glsl".to_string()],
-    );
-    let program = glium::Program::from_source(&display, &vshader, &fshader, None).unwrap();
-/*
-    let octree = generate(); //vec![Node{pointer:[0,2,2,2,2,2,2,2]}];
-    println!("{}", octree.len());
-    let octree_buffer = glium::uniforms::UniformBuffer::empty_unsized(
-        &display,
-        octree.len() * std::mem::size_of::<Node>(),
-    )
-    .unwrap();
-    octree_buffer.write(octree.as_slice());
-*/
 
     let mut camera_pos = vec3(4.0, 16.0, 4.0);
 
     let (conn_client, conn_server) = Connection::local();
-    let mut client = Client::new(&display, conn_client, camera_pos);
+    let mut client = Client::new(display, events_loop, conn_client, camera_pos);
     std::thread::spawn(move || {
         let mut server = Server::new();
         server.join(conn_server, camera_pos);
         server.run();
     });
 
-    //client.load_chunks( //vec![(ivec3(0,0,0),generate(ivec3(1,0,0)))]);
-    //    (0..2).flat_map(|x| (0..2).flat_map(move |y| (0..2).map(move |z| ivec3(x,y,z)))).map(|x| (x, generate(x))).collect());
-    /*
-    println!("{:?}", client.root);
-    println!("{:?}", client.map);
-    */
-
-    /*
-    let (a,b) = std::sync::mpsc::channel();
-    let (c,d) = std::sync::mpsc::channel();
-    let q = ChunkThread::new(a,d);
-
-    conn_server.send(Message::Chunks((-1..1).flat_map(|x| (-1..1).flat_map(move |y| (0..2).map(move |z| ivec3(x,y,z)))).map(|x| (x, q.gen.gen(x))).collect())).unwrap();
-    */
-
-    let (mut rx, mut ry) = (0.0, 0.0);
     let mut timer = stopwatch::Stopwatch::start_new();
-
-    let mut moving = vec3(0.0, 0.0, 0.0); // vec3(forwards, up, right)
 
     let mut open = true;
     while open {
         let delta = timer.elapsed_ms() as f64 / 1000.0;
-        println!("{:.1} FPS", 1.0/delta);
+        println!("{:.1} FPS", 1.0 / delta);
         timer.restart();
-        let mut target = display.draw();
-        target.clear_color(0.0, 0.0, 0.0, 1.0);
 
-        let resolution = target.get_dimensions();
+        let mut target = client.display().draw();
 
-        let camera_up = vec3(0.0, 1.0, 0.0);
-        let q = glm::ext::rotate(&Matrix4::one(), rx / resolution.0 as f32 * -6.28, camera_up)
-            * vec4(0.0, 0.0, 1.0, 1.0);
-        let camera_dir = normalize(vec3(q.x, q.y, q.z));
-        let camera_right = cross(camera_dir, camera_up);
-        let q = glm::ext::rotate(
-            &Matrix4::one(),
-            ry / resolution.1 as f32 * -6.28,
-            camera_right,
-        ) * q;
-        let camera_dir = normalize(vec3(q.x, q.y, q.z));
-        let camera_up = cross(camera_right, camera_dir);
-
-        target
-            .draw(
-                &vbuff,
-                &indices,
-                &program,
-                &uniform! {
-                    resolution: resolution,
-                    octree_buffer: client.tree_uniform(),
-                    camera_dir: *camera_dir.as_array(),
-                    camera_up: *camera_up.as_array(),
-                    camera_right: *camera_right.as_array(),
-                    camera_pos: *camera_pos.as_array(),
-                    origin: client.origin_uniform(),
-                    root_size: client.root_size,
-                },
-                &Default::default(),
-            )
-            .unwrap();
+        client.draw(&mut target);
 
         // Most computation should go after this point, while the GPU is rendering
 
-        client.update(camera_pos);
-        camera_pos = client.pos();
-
-        events_loop.poll_events(|event| match event {
-            glutin::Event::WindowEvent {
-                event: glutin::WindowEvent::CloseRequested,
-                ..
-            } => open = false,
-            glutin::Event::DeviceEvent { event, .. } => match event {
-                glutin::DeviceEvent::MouseMotion { delta } => {
-                    rx += delta.0 as f32;
-                    ry += delta.1 as f32;
-                    ry = glm::clamp(
-                        ry,
-                        -(resolution.1 as f32 * 0.25),
-                        resolution.1 as f32 * 0.25,
-                    );
-                }
-                glutin::DeviceEvent::Key(glutin::KeyboardInput {
-                    scancode,
-                    state: glutin::ElementState::Pressed,
-                    ..
-                }) => match num_traits::FromPrimitive::from_u32(scancode)
-                    .unwrap_or(KeyPress::Nothing)
-                {
-                    KeyPress::Forward => moving.x = 1.0,
-                    KeyPress::Back => moving.x = -1.0,
-                    _ => (),
-                },
-                glutin::DeviceEvent::Key(glutin::KeyboardInput {
-                    scancode,
-                    state: glutin::ElementState::Released,
-                    ..
-                }) => match num_traits::FromPrimitive::from_u32(scancode)
-                    .unwrap_or(KeyPress::Nothing)
-                {
-                    KeyPress::Forward | KeyPress::Back => moving.x = 0.0,
-                    _ => (),
-                },
-                _ => (),
-            },
-            _ => (),
-        });
-        camera_pos = camera_pos + camera_dir * moving.x * delta as f32 * 8.0;
+        open = client.update(delta);
+        //camera_pos = client.pos();
 
         target.finish().unwrap();
     }

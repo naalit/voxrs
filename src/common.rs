@@ -7,43 +7,11 @@ pub use glm::*;
 use std::sync::mpsc::*;
 
 // MUST BE power of 2
-pub const CHUNK_NUM: UVec3 = Vector3 { x: 8, y: 8, z: 8 };
+pub const CHUNK_NUM: UVec3 = Vector3 { x: 4, y: 4, z: 4 };
 pub const CHUNK_NUM_I: IVec3 = IVec3 { x: CHUNK_NUM.x as i32 / 2, y: CHUNK_NUM.y as i32 / 2, z: CHUNK_NUM.z as i32 / 2 };
 
 pub const CHUNK_SIZE: f32 = 16.0;
-pub const ROOT_SIZE: f32 = 16.0 * 8.0;
-
-#[derive(Copy, Clone, Debug)]
-pub struct Node {
-    pub pointer: [u32; 8],
-}
-implement_uniform_block!(Node, pointer);
-
-impl Node {
-    /// An empty leaf node
-    pub fn new() -> Self {
-        Node { pointer: [0; 8] }
-    }
-
-    /// Converts between a 3D vector representing the child slot, and the actual index into the `pointer` array
-    pub fn idx<T: BaseNum>(idx: Vector3<T>) -> usize {
-        // Once again, this function closely mirrors the GLSL one for testing
-        let mut ret = 0;
-        ret |= usize::from(idx.x > T::zero()) << 2;
-        ret |= usize::from(idx.y > T::zero()) << 1;
-        ret |= usize::from(idx.z > T::zero());
-        ret
-    }
-
-    /// Converts between a 3D vector representing the child slot, and the actual index into the `pointer` array
-    pub fn position(idx: usize) -> Vector3<f32> {
-        vec3(
-            if idx & (1 << 2) > 0 { 1.0 } else { -1.0 },
-            if idx & (1 << 1) > 0 { 1.0 } else { -1.0 },
-            if idx & 1 > 0 { 1.0 } else { -1.0 },
-        )
-    }
-}
+pub const DRAW_DIST: f32 = CHUNK_SIZE * 2.0;
 
 pub fn as_tuple<T: BaseNum>(x: Vector3<T>) -> (T, T, T) {
     (x.x, x.y, x.z)
@@ -63,7 +31,10 @@ pub fn world_to_chunk(world: Vec3) -> IVec3 {
     to_ivec3(world / CHUNK_SIZE + 0.5)
 }
 
-pub type Chunk = Vec<Node>;
+
+pub type Material = u16;
+pub const AIR: Material = 0;
+pub type Chunk = Vec<Vec<Vec<Material>>>;
 
 pub enum Connection {
     Local(Sender<Message>, Receiver<Message>),

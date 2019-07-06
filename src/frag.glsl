@@ -1,32 +1,28 @@
 #version 450
 
-uniform uvec2 resolution;
-
-uniform vec3 camera_dir;
-uniform vec3 camera_up;
-uniform vec3 camera_right;
-uniform vec3 camera_pos;
-
 out vec4 frag_color;
 
-#include <octree.glsl>
-#include <shade.glsl>
+in vec3 frag_pos;
+in vec3 normal;
+
+// #define WIREFRAME
+// #define WF_LIGHTING
 
 void main() {
-    // -1 to 1, aspect corrected
-    vec2 uv = 2.0 * gl_FragCoord.xy / vec2(resolution.y) - 1.0;
-
-    vec3 rd = normalize(
-        camera_dir  // The point on the film we're looking at
-        + camera_up * uv.y // Offset this much up
-        + camera_right * uv.x // And this much right
-    );
-    vec3 ro = camera_pos;//vec3(0.0,0.0,0.0);
-
-    vec2 t;
-    int i;
-    vec3 pos;
-    bool b = trace(ro,rd,t,i,pos);
-
-    frag_color = vec4(vec3(b) * shade(ro,rd,t,pos),1.0);// * vec4(t.y*0.001);//vec4(i)/128.0;//*/vec4(i)/32.0;///*vec4(b)  vec4(i)/64.0;/*/vec4(t*0.01,0.0,1.0);
+    vec3 col = vec3(0);
+    float NoL = dot(normal, normalize(vec3(0.2, 0.9, 0.3)));
+    col += max(0.0, NoL );
+    col += max(0.01, -0.1 * NoL ); // Fake bounce, inspired by IQ's three light model
+    #ifdef WIREFRAME
+    vec3 uvw = fract(frag_pos);
+    float t = max(uvw.x, max(uvw.y, uvw.z));
+    uvw += abs(normal)*0.5;
+    float q = min(uvw.x, min(uvw.y, uvw.z));
+    if (t < 0.99 && q > 0.01)
+        discard;
+    #ifndef WF_LIGHTING
+    col = vec3(1.0);
+    #endif
+    #endif
+    frag_color = vec4(col, 1.0);
 }

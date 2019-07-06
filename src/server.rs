@@ -126,11 +126,13 @@ impl Server {
 
         let mut to_load = Vec::new();
 
+        let draw_chunks = DRAW_DIST/CHUNK_SIZE;
+
         for x in -CHUNK_NUM_I.x..CHUNK_NUM_I.x {
             for y in -CHUNK_NUM_I.y..CHUNK_NUM_I.y {
                 for z in -CHUNK_NUM_I.z..CHUNK_NUM_I.z {
                     let p = ivec3(x,y,z);
-                    if length(to_vec3(p)) < ROOT_SIZE*0.5 {
+                    if length(to_vec3(p)) <= draw_chunks {
                         to_load.push(as_tuple(chunk_pos+p));
                     }
                 }
@@ -167,13 +169,15 @@ impl Server {
 
         println!("Loading chunks around {:?}", new);
 
+        let draw_chunks = DRAW_DIST/CHUNK_SIZE;
+
         let mut around_old = HashSet::new();
         let mut around_new = HashSet::new();
         for x in -CHUNK_NUM_I.x..CHUNK_NUM_I.x {
             for y in -CHUNK_NUM_I.y..CHUNK_NUM_I.y {
                 for z in -CHUNK_NUM_I.z..CHUNK_NUM_I.z {
                     let p = ivec3(x,y,z);
-                    if length(to_vec3(p)) < ROOT_SIZE*0.5 {
+                    if length(to_vec3(p)) <= draw_chunks {
                         around_old.insert(as_tuple(chunk_old+p));
                         around_new.insert(as_tuple(chunk_new+p));
                     }
