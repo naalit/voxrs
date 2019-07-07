@@ -94,14 +94,15 @@ impl Server {
                         let mut to_remove = 12345678;
                         for (i, (order, conn)) in self.orders.iter().enumerate() {
                             if order == &locs {
-                                for l in locs.iter() {
+                                /*for l in locs.iter() {
                                     match self.refs.get_mut(&as_tuple(*l)) {
                                         Some(x) => *x += 1, // This is indeed possible but ugly; see Todo below
                                         None    => { self.refs.insert(as_tuple(*l),1); },
                                     }
-                                }
+                                }*/ // Commented out because we now do that when we request chunks to be loaded
                                 conn.send(Message::Chunks(x.clone())).unwrap();
                                 to_remove = i; // We don't need this order anymore
+                                break;
                             }
                         }
                         for (loc, chunk) in x.into_iter() {
@@ -146,6 +147,10 @@ impl Server {
             match self.chunks.get(&p) {
                 Some(chunk) => to_pass.push((p2,chunk.clone())),
                 None        => to_send.push(p2),
+            }
+            match self.refs.get_mut(&p) {
+                Some(x) => *x += 1, // This is indeed possible but ugly; see Todo below
+                None    => { self.refs.insert(p,1); },
             }
         }
 
@@ -203,7 +208,7 @@ impl Server {
                     self.refs.remove(&i);
                 }
             } else {
-                println!("Tried to unload a chunk that isn't loaded: {:?}", i);
+                panic!("Tried to unload a chunk that isn't loaded [2]: {:?}", i);
             }
         }
 
@@ -214,6 +219,10 @@ impl Server {
             match self.chunks.get(&p) {
                 Some(chunk) => to_pass.push((p2,chunk.clone())),
                 None        => to_send.push(p2),
+            }
+            match self.refs.get_mut(&p) {
+                Some(x) => *x += 1, // This is indeed possible but ugly; see Todo below
+                None    => { self.refs.insert(p,1); },
             }
         }
 

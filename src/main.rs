@@ -63,7 +63,7 @@ fn main() {
     let mut open = true;
     while open {
         let delta = timer.elapsed_ms() as f64 / 1000.0;
-        println!("{:.1} FPS", 1.0 / delta);
+        // println!("{:.1} FPS", 1.0 / delta);
         timer.restart();
 
         let mut target = client.display().draw();

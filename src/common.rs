@@ -7,11 +7,11 @@ pub use glm::*;
 use std::sync::mpsc::*;
 
 // MUST BE power of 2
-pub const CHUNK_NUM: UVec3 = Vector3 { x: 4, y: 4, z: 4 };
+pub const CHUNK_NUM: UVec3 = Vector3 { x: 8, y: 8, z: 8 };
 pub const CHUNK_NUM_I: IVec3 = IVec3 { x: CHUNK_NUM.x as i32 / 2, y: CHUNK_NUM.y as i32 / 2, z: CHUNK_NUM.z as i32 / 2 };
 
 pub const CHUNK_SIZE: f32 = 16.0;
-pub const DRAW_DIST: f32 = CHUNK_SIZE * 2.0;
+pub const DRAW_DIST: f32 = CHUNK_SIZE * 4.0;
 
 pub fn as_tuple<T: BaseNum>(x: Vector3<T>) -> (T, T, T) {
     (x.x, x.y, x.z)
