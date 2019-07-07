@@ -1,16 +1,21 @@
+use std::sync::Arc;
 use crate::common::*;
 use crate::input::*;
 use crate::mesh::*;
+use enum_iterator::IntoEnumIterator;
 use crate::num_traits::One;
 use glium::glutin::*;
 use glium::*;
 use glsl_include::Context as ShaderContext;
 use rayon::prelude::*;
 use std::collections::HashMap;
+use crate::client_aux::*;
+use std::sync::mpsc::*;
 
 struct DrawStuff<'a> {
     params: DrawParameters<'a>,
     program: Program,
+    mat_buf: glium::uniforms::UniformBuffer<[MatData]>,
 }
 
 #[derive(Clone)]
@@ -129,26 +134,37 @@ fn shader(path: String, includes: &[String]) -> String {
 }
 
 pub struct Client<'a> {
-    conn: Connection,
     camera: Camera,
-    chunks: HashMap<(i32, i32, i32), Chunk>,
+    chunks: HashMap<(i32, i32, i32), Arc<Chunk>>,
     meshes: HashMap<(i32, i32, i32), Mesh>,
     evloop: EventsLoop,
     display: Display,
     draw_stuff: DrawStuff<'a>,
+    aux: (Sender<Message>, Receiver<ClientMessage>),
 }
 
 impl<'a> Client<'a> {
     pub fn new(display: Display, evloop: EventsLoop, conn: Connection, player: Vec3) -> Self {
+        let (to, from_them) = channel();
+        let (to_them, from) = channel();
+        std::thread::spawn(move || {
+            client_aux_thread(conn, (to_them, from_them), player)
+        });
+
         let vshader = shader("vert.glsl".to_string(), &[]);
         let fshader = shader("frag.glsl".to_string(), &[]);
         let program = glium::Program::from_source(&display, &vshader, &fshader, None).unwrap();
 
+        let mats = Material::into_enum_iter()
+            .map(|x| x.mat_data())
+            .collect::<Vec<MatData>>();
+        let mat_buf = glium::uniforms::UniformBuffer::empty_unsized_immutable(&display, std::mem::size_of::<MatData>() * mats.len()).unwrap();
+        mat_buf.write(mats.as_slice());
+
         Client {
-            conn,
             camera: Camera::new(player),
-            chunks: HashMap::new(),
-            meshes: HashMap::new(),
+            chunks: HashMap::with_capacity((CHUNK_NUM.x*CHUNK_NUM.y*CHUNK_NUM.z/2) as usize),
+            meshes: HashMap::with_capacity((CHUNK_NUM.x*CHUNK_NUM.y*CHUNK_NUM.z/2) as usize),
             evloop,
             display,
             draw_stuff: DrawStuff {
@@ -161,7 +177,9 @@ impl<'a> Client<'a> {
                     ..Default::default()
                 },
                 program,
+                mat_buf,
             },
+            aux: (to, from),
         }
     }
 
@@ -189,6 +207,8 @@ impl<'a> Client<'a> {
                 &self.draw_stuff.params,
                 uniform! {
                     proj_mat: proj_mat,
+                    mat_buf: &self.draw_stuff.mat_buf,
+                    camera_pos: *self.camera.pos.as_array(),
                 },
             );
         }
@@ -221,35 +241,21 @@ impl<'a> Client<'a> {
         camera.update(delta, resolution);
         self.camera = camera;
 
-        if let Some(m) = self.conn.recv() {
+        if let Ok(chunks) = self.aux.1.try_recv() {
             // Only load chunks once per frame
-            match m {
-                Message::Chunks(chunks) => {
-                    /*
-                    println!(
-                        "Requested load of {} chunks: \n{:?}",
-                        chunks.len(),
-                        chunks.iter().map(|x| x.0).collect::<Vec<IVec3>>()
-                    );
-                    */
-                    self.load_chunks(chunks)
-                }
-                _ => (),
-            }
+            self.load_chunks(chunks);
         }
-        self.conn.send(Message::PlayerMove(self.camera.pos));
+        self.aux.0.send(Message::PlayerMove(self.camera.pos)).unwrap();
 
         open
     }
 
     /// Load a bunch of chunks at once. Prunes the root as well
     /// Uploads everything to the GPU
-    pub fn load_chunks(&mut self, chunks: Vec<(IVec3, Chunk)>) {
+    pub fn load_chunks(&mut self, chunks: Vec<(IVec3, Vec<crate::mesh::Vertex>, Arc<Chunk>)>) {
         self.prune_chunks();
 
-        let verts: Vec<_> = chunks.par_iter().map(|(_, chunk)| mesh(chunk)).collect();
-
-        for ((i, c), v) in chunks.into_iter().zip(verts) {
+        for (i, v, c) in chunks {
             let mesh = Mesh::new(
                 &self.display,
                 v,

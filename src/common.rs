@@ -6,12 +6,12 @@
 pub use glm::*;
 use std::sync::mpsc::*;
 
-// MUST BE power of 2
-pub const CHUNK_NUM: UVec3 = Vector3 { x: 8, y: 8, z: 8 };
+const RD: u32 = 16;
+pub const CHUNK_NUM: UVec3 = Vector3 { x: RD, y: 16, z: RD };
 pub const CHUNK_NUM_I: IVec3 = IVec3 { x: CHUNK_NUM.x as i32 / 2, y: CHUNK_NUM.y as i32 / 2, z: CHUNK_NUM.z as i32 / 2 };
 
 pub const CHUNK_SIZE: f32 = 16.0;
-pub const DRAW_DIST: f32 = CHUNK_SIZE * 4.0;
+pub const DRAW_DIST: f32 = CHUNK_SIZE * RD as f32 * 0.5;
 
 pub fn as_tuple<T: BaseNum>(x: Vector3<T>) -> (T, T, T) {
     (x.x, x.y, x.z)
@@ -32,8 +32,9 @@ pub fn world_to_chunk(world: Vec3) -> IVec3 {
 }
 
 
-pub type Material = u16;
-pub const AIR: Material = 0;
+//pub type Material = u16;
+pub use crate::material::*;
+//pub const AIR: Material = 0;
 pub type Chunk = Vec<Vec<Vec<Material>>>;
 
 pub enum Connection {

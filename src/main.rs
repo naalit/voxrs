@@ -13,14 +13,17 @@ use glsl_include::Context as ShaderContext;
 use num_traits::identities::*;
 
 mod common;
-use common::*;
 mod chunk;
 mod client;
+mod client_aux;
 mod input;
 mod mesh;
 mod server;
 mod terrain;
+mod material;
 
+
+use common::*;
 use client::*;
 use server::*;
 
@@ -63,7 +66,7 @@ fn main() {
     let mut open = true;
     while open {
         let delta = timer.elapsed_ms() as f64 / 1000.0;
-        // println!("{:.1} FPS", 1.0 / delta);
+        println!("{:.1} FPS", 1.0 / delta);
         timer.restart();
 
         let mut target = client.display().draw();
