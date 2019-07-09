@@ -5,7 +5,7 @@ in vec3 nor;
 in uint mat;
 out vec3 normal;
 out vec3 frag_pos;
-out uint mat_index;
+flat out uint mat_index;
 
 uniform mat4 proj_mat;
 uniform mat4 model;

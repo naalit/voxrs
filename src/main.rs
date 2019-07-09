@@ -46,10 +46,14 @@ fn shader(path: String, includes: &[String]) -> String {
 
 fn main() {
     // Wayland doesn't allow cursor grabbing
-    let mut events_loop = glutin::os::unix::EventsLoopExt::new_x11().unwrap();
-    let wb = glutin::WindowBuilder::new().with_title("Vox.rs 2");
+    let mut events_loop: glutin::EventsLoop = glutin::os::unix::EventsLoopExt::new_x11().unwrap();
+    let wb = glutin::WindowBuilder::new().with_title("Vox.rs 2").with_fullscreen(Some(events_loop.get_primary_monitor()));
     let cb = glutin::ContextBuilder::new().with_depth_buffer(24);
     let display = glium::Display::new(wb, cb, &events_loop).unwrap();
+    display.gl_window().window().grab_cursor(true).unwrap();
+    display.gl_window().window().hide_cursor(true);
+
+    let resolution: (u32, u32) = display.gl_window().window().get_inner_size().unwrap().into();
 
     let mut camera_pos = vec3(4.0, 16.0, 4.0);
 
@@ -61,23 +65,5 @@ fn main() {
         server.run();
     });
 
-    let mut timer = stopwatch::Stopwatch::start_new();
-
-    let mut open = true;
-    while open {
-        let delta = timer.elapsed_ms() as f64 / 1000.0;
-        println!("{:.1} FPS", 1.0 / delta);
-        timer.restart();
-
-        let mut target = client.display().draw();
-
-        client.draw(&mut target);
-
-        // Most computation should go after this point, while the GPU is rendering
-
-        open = client.update(delta);
-        //camera_pos = client.pos();
-
-        target.finish().unwrap();
-    }
+    client.game_loop(resolution);
 }

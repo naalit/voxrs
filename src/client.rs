@@ -1,22 +1,16 @@
-use std::sync::Arc;
+use crate::client_aux::*;
 use crate::common::*;
 use crate::input::*;
 use crate::mesh::*;
-use enum_iterator::IntoEnumIterator;
 use crate::num_traits::One;
+use enum_iterator::IntoEnumIterator;
 use glium::glutin::*;
 use glium::*;
 use glsl_include::Context as ShaderContext;
 use rayon::prelude::*;
 use std::collections::HashMap;
-use crate::client_aux::*;
 use std::sync::mpsc::*;
-
-struct DrawStuff<'a> {
-    params: DrawParameters<'a>,
-    program: Program,
-    mat_buf: glium::uniforms::UniformBuffer<[MatData]>,
-}
+use std::sync::Arc;
 
 #[derive(Clone)]
 struct Camera {
@@ -133,52 +127,101 @@ fn shader(path: String, includes: &[String]) -> String {
     c.expand(string).unwrap()
 }
 
-pub struct Client<'a> {
+#[derive(Clone, Copy)]
+struct SimpleVert {
+    p: [f32; 2],
+}
+implement_vertex!(SimpleVert, p);
+
+struct DrawStuff<'a> {
+    params: DrawParameters<'a>,
+    gbuff_program: Program,
+    shade_program: Program,
+    gbuff: glium::texture::Texture2d,
+    gbuff_depth: glium::texture::depth_texture2d::DepthTexture2d,
+    quad: VertexBuffer<SimpleVert>,
+    mat_buf: glium::uniforms::UniformBuffer<[MatData]>,
+}
+
+impl<'a> DrawStuff<'a> {
+    fn new(display: &Display, resolution: (u32, u32)) -> Self {
+        let vshader = shader("gbuff.vert".to_string(), &[]);
+        let fshader = shader("gbuff.frag".to_string(), &[]);
+        let gbuff_program =
+            glium::Program::from_source(display, &vshader, &fshader, None).unwrap();
+
+        let vshader = shader("blank.vert".to_string(), &[]);
+        let fshader = shader("shade.frag".to_string(), &[]);
+        let shade_program =
+            glium::Program::from_source(display, &vshader, &fshader, None).unwrap();
+
+        let quad = [
+            SimpleVert { p: [-1.0, -1.0] },
+            SimpleVert { p: [-1.0,  1.0] },
+            SimpleVert { p: [ 1.0, -1.0] },
+            SimpleVert { p: [ 1.0,  1.0] },
+        ];
+        let quad = glium::VertexBuffer::new(display, &quad).unwrap();
+
+        let mats = Material::into_enum_iter()
+            .map(|x| x.mat_data())
+            .collect::<Vec<MatData>>();
+        let mat_buf = glium::uniforms::UniformBuffer::empty_unsized_immutable(
+            display,
+            std::mem::size_of::<MatData>() * mats.len(),
+        )
+        .unwrap();
+        mat_buf.write(mats.as_slice());
+
+        let gbuff = glium::texture::Texture2d::empty_with_format(
+            display,
+            glium::texture::UncompressedFloatFormat::F32F32F32F32,
+            glium::texture::MipmapsOption::NoMipmap,
+            resolution.0,
+            resolution.1,
+        )
+        .unwrap();
+        let gbuff_depth = glium::texture::depth_texture2d::DepthTexture2d::empty(display,resolution.0,resolution.1).unwrap();
+        DrawStuff {
+            params: glium::DrawParameters {
+                depth: glium::Depth {
+                    test: glium::draw_parameters::DepthTest::IfLess,
+                    write: true,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            gbuff_program,
+            shade_program,
+            gbuff,
+            gbuff_depth,
+            quad,
+            mat_buf,
+        }
+    }
+}
+
+pub struct Client {
     camera: Camera,
     chunks: HashMap<(i32, i32, i32), Arc<Chunk>>,
     meshes: HashMap<(i32, i32, i32), Mesh>,
     evloop: EventsLoop,
     display: Display,
-    draw_stuff: DrawStuff<'a>,
     aux: (Sender<Message>, Receiver<ClientMessage>),
 }
 
-impl<'a> Client<'a> {
+impl Client {
     pub fn new(display: Display, evloop: EventsLoop, conn: Connection, player: Vec3) -> Self {
         let (to, from_them) = channel();
         let (to_them, from) = channel();
-        std::thread::spawn(move || {
-            client_aux_thread(conn, (to_them, from_them), player)
-        });
-
-        let vshader = shader("vert.glsl".to_string(), &[]);
-        let fshader = shader("frag.glsl".to_string(), &[]);
-        let program = glium::Program::from_source(&display, &vshader, &fshader, None).unwrap();
-
-        let mats = Material::into_enum_iter()
-            .map(|x| x.mat_data())
-            .collect::<Vec<MatData>>();
-        let mat_buf = glium::uniforms::UniformBuffer::empty_unsized_immutable(&display, std::mem::size_of::<MatData>() * mats.len()).unwrap();
-        mat_buf.write(mats.as_slice());
+        std::thread::spawn(move || client_aux_thread(conn, (to_them, from_them), player));
 
         Client {
             camera: Camera::new(player),
-            chunks: HashMap::with_capacity((CHUNK_NUM.x*CHUNK_NUM.y*CHUNK_NUM.z/2) as usize),
-            meshes: HashMap::with_capacity((CHUNK_NUM.x*CHUNK_NUM.y*CHUNK_NUM.z/2) as usize),
+            chunks: HashMap::with_capacity((CHUNK_NUM.x * CHUNK_NUM.y * CHUNK_NUM.z / 2) as usize),
+            meshes: HashMap::with_capacity((CHUNK_NUM.x * CHUNK_NUM.y * CHUNK_NUM.z / 2) as usize),
             evloop,
             display,
-            draw_stuff: DrawStuff {
-                params: glium::DrawParameters {
-                    depth: glium::Depth {
-                        test: glium::draw_parameters::DepthTest::IfLess,
-                        write: true,
-                        ..Default::default()
-                    },
-                    ..Default::default()
-                },
-                program,
-                mat_buf,
-            },
             aux: (to, from),
         }
     }
@@ -192,7 +235,7 @@ impl<'a> Client<'a> {
         &self.display
     }
 
-    pub fn draw(&mut self, target: &mut Frame) {
+    fn draw(&self, target: &mut Frame, draw_stuff: &DrawStuff, gbuff_fb: &mut glium::framebuffer::SimpleFrameBuffer) {
         target.clear_color(0.0, 0.0, 0.0, 1.0);
         target.clear_depth(1.0);
 
@@ -200,18 +243,34 @@ impl<'a> Client<'a> {
 
         let proj_mat = self.camera.mat(resolution);
 
+        // Draw chunks onto the G-Buffer
+        gbuff_fb.clear_color_and_depth((0.0, 0.0, 0.0, 0.0), 1.0);
         for (_loc, mesh) in self.meshes.iter() {
             mesh.draw(
-                target,
-                &self.draw_stuff.program,
-                &self.draw_stuff.params,
+                gbuff_fb,
+                &draw_stuff.gbuff_program,
+                &draw_stuff.params,
                 uniform! {
                     proj_mat: proj_mat,
-                    mat_buf: &self.draw_stuff.mat_buf,
-                    camera_pos: *self.camera.pos.as_array(),
+                    // mat_buf: &self.draw_stuff.mat_buf,
+                    // camera_pos: *self.camera.pos.as_array(),
                 },
             );
         }
+
+        // Draw a fullscreen quad and shade using the G-Buffer
+        target.draw(
+            &draw_stuff.quad,
+            &glium::index::NoIndices(glium::index::PrimitiveType::TriangleStrip),
+            &draw_stuff.shade_program,
+            &uniform! {
+                mat_buf: &draw_stuff.mat_buf,
+                camera_pos: *self.camera.pos.as_array(),
+                gbuff: &draw_stuff.gbuff,
+            },
+            &Default::default(),
+        ).unwrap();
+
     }
 
     pub fn update(&mut self, delta: f64) -> bool {
@@ -245,9 +304,43 @@ impl<'a> Client<'a> {
             // Only load chunks once per frame
             self.load_chunks(chunks);
         }
-        self.aux.0.send(Message::PlayerMove(self.camera.pos)).unwrap();
+        self.aux
+            .0
+            .send(Message::PlayerMove(self.camera.pos))
+            .unwrap();
 
         open
+    }
+
+    /// Runs the game loop on the client side
+    pub fn game_loop(mut self, resolution: (u32, u32)) {
+        let draw_stuff = DrawStuff::new(&self.display, resolution);
+
+        let mut gbuff_fb = glium::framebuffer::SimpleFrameBuffer::with_depth_buffer(
+            &self.display,
+            &draw_stuff.gbuff,
+            &draw_stuff.gbuff_depth,
+        )
+        .unwrap();
+
+        let mut timer = stopwatch::Stopwatch::start_new();
+
+        let mut open = true;
+        while open {
+            let delta = timer.elapsed_ms() as f64 / 1000.0;
+            println!("{:.1} FPS", 1.0 / delta);
+            timer.restart();
+
+            let mut target = self.display().draw();
+
+            self.draw(&mut target, &draw_stuff, &mut gbuff_fb);
+
+            // Most computation should go after this point, while the GPU is rendering
+
+            open = self.update(delta);
+
+            target.finish().unwrap();
+        }
     }
 
     /// Load a bunch of chunks at once. Prunes the root as well

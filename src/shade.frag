@@ -1,12 +1,11 @@
 #version 450
 
+// The shading pass after the G-Buffer is filled
+
 out vec4 frag_color;
 
-in vec3 frag_pos;
-in vec3 normal;
-flat in uint mat_index;
-
 uniform vec3 camera_pos;
+uniform sampler2D gbuff;
 
 struct MatData {
     vec3 color;
@@ -41,7 +40,21 @@ vec3 applyFog( in vec3 rgb, // original color of the pixel
     return mix( rgb, fogColor, fogAmount );
 }
 
+vec3 decode_normal(uint n) {
+    return sign(0.5-float((n >> 2u) & 1u))* vec3(
+        float(n & 1u),
+        float((n >> 1u) & 1u),
+        float(1u - (n & 1u)) * float(1u - ((n >> 1u) & 1u))
+        );
+}
+
 void main() {
+    vec4 g = texelFetch(gbuff, ivec2(gl_FragCoord.xy), 0);
+    vec3 frag_pos = g.xyz;
+    uint w = floatBitsToUint(g.w);
+    uint mat_index = w >> 3u;
+    vec3 normal = decode_normal(w);
+
     vec3 col = vec3(0);
     vec3 sun_dir = normalize(vec3(0.2, 0.9, 0.3));
     float NoL = dot(normal, sun_dir);

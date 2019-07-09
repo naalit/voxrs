@@ -47,7 +47,7 @@ impl Mesh {
         }
     }
 
-    pub fn draw<T: glium::uniforms::AsUniformValue, R: glium::uniforms::Uniforms>(&self, frame: &mut Frame, program: &Program, params: &DrawParameters, uniforms: glium::uniforms::UniformsStorage<'_, T, R>) {
+    pub fn draw<T: glium::uniforms::AsUniformValue, R: glium::uniforms::Uniforms>(&self, frame: &mut impl Surface, program: &Program, params: &DrawParameters, uniforms: glium::uniforms::UniformsStorage<'_, T, R>) {
         if !self.empty {
             let model = [*self.model[0].as_array(), *self.model[1].as_array(), *self.model[2].as_array(), *self.model[3].as_array()];
             frame.draw(
