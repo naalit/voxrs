@@ -1,34 +1,43 @@
 /// #GUIDE TO TYPES
-/// In order to not confuse different spaces, we always use the same types for spaces:
+/// In order to not confuse different spaces, we always use the same types for coordinates:
 /// - `Vec3` is a position in world-space, in increments of 1 meter
 /// - `IVec3` is a chunk location in world-space, in increments of 1 chunk
 
-pub use glm::*;
+pub use nalgebra as na;
+pub use nalgebra::{Vector3, Point3, Isometry3, Scalar, Unit};
 use std::sync::mpsc::*;
 
 const RD: u32 = 16;
-pub const CHUNK_NUM: UVec3 = Vector3 { x: RD, y: 16, z: RD };
-pub const CHUNK_NUM_I: IVec3 = IVec3 { x: CHUNK_NUM.x as i32 / 2, y: CHUNK_NUM.y as i32 / 2, z: CHUNK_NUM.z as i32 / 2 };
+pub const CHUNK_NUM: (u32, u32, u32) = (RD, 16, RD);
+pub const CHUNK_NUM_I: (i32, i32, i32) = (CHUNK_NUM.0 as i32 / 2, CHUNK_NUM.1 as i32 / 2, CHUNK_NUM.2 as i32 / 2);
 
 pub const CHUNK_SIZE: f32 = 16.0;
 pub const DRAW_DIST: f32 = CHUNK_SIZE * RD as f32 * 0.5;
 
-pub fn as_tuple<T: BaseNum>(x: Vector3<T>) -> (T, T, T) {
+// Shorthands to match GLSL
+pub type IVec3 = Vector3<i32>;
+pub type Vec3 = Vector3<f32>;
+
+pub fn radians(degrees: f32) -> f32 {
+    std::f32::consts::PI / 180.0 * degrees
+}
+
+pub fn as_tuple<T: Scalar>(x: Vector3<T>) -> (T, T, T) {
     (x.x, x.y, x.z)
 }
-pub fn as_vec<T: BaseNum>(x: (T,T,T)) -> Vector3<T> {
-    Vector3 {
-        x: x.0,
-        y: x.1,
-        z: x.2,
-    }
+pub fn as_vec<T: Scalar>(x: (T,T,T)) -> Vector3<T> {
+    Vector3::new(
+        x.0,
+        x.1,
+        x.2,
+    )
 }
 
 pub fn chunk_to_world(chunk: IVec3) -> Vec3 {
-    (to_vec3(chunk) - 0.5) * CHUNK_SIZE
+    chunk.map(|x| x as f32 + 0.5) * CHUNK_SIZE
 }
 pub fn world_to_chunk(world: Vec3) -> IVec3 {
-    to_ivec3(world / CHUNK_SIZE + 0.5)
+    (world / CHUNK_SIZE).map(|x| x as i32)
 }
 
 

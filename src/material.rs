@@ -33,7 +33,7 @@ impl Material {
                nothing: 0.0,
            },
            Material::Grass => MatData {
-               color: [0.3, 0.7, 0.5],
+               color: [0.4, 0.7, 0.5],
                roughness: 0.8,
                trans: 0.0,
                metal: 0.0,
@@ -72,6 +72,14 @@ impl Material {
                ior: 1.0,
                nothing: 0.0,
            },
+       }
+   }
+
+   /// Whether we can place & break blocks through this substance
+   pub fn pick_through(&self) -> bool {
+       match self {
+           Material::Air | Material::Water => true,
+           _ => false,
        }
    }
 }

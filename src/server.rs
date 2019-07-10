@@ -12,8 +12,8 @@ struct Player {
 }
 
 pub struct Server {
-    chunks: HashMap<(i32,i32,i32), Chunk>,
-    refs: HashMap<(i32,i32,i32), usize>,
+    chunks: HashMap<IVec3, Chunk>,
+    refs: HashMap<IVec3, usize>,
     players: Vec<Player>,
     orders: Vec<(Vec<IVec3>, Rc<Connection>)>,
     ch: (Sender<ChunkMessage>, Receiver<ChunkMessage>),
@@ -106,7 +106,7 @@ impl Server {
                             }
                         }
                         for (loc, chunk) in x.into_iter() {
-                            self.chunks.insert(as_tuple(loc), chunk); // There's a very small chance we're replacing a chunk; see Todo below
+                            self.chunks.insert(loc, chunk); // There's a very small chance we're replacing a chunk; see Todo below
                         }
                         if to_remove != 12345678 {
                             self.orders.remove(to_remove);
@@ -129,12 +129,12 @@ impl Server {
 
         let draw_chunks = DRAW_DIST/CHUNK_SIZE;
 
-        for x in -CHUNK_NUM_I.x..CHUNK_NUM_I.x {
-            for y in -CHUNK_NUM_I.y..CHUNK_NUM_I.y {
-                for z in -CHUNK_NUM_I.z..CHUNK_NUM_I.z {
-                    let p = ivec3(x,y,z);
-                    if length(to_vec3(p)) <= draw_chunks {
-                        to_load.push(as_tuple(chunk_pos+p));
+        for x in -CHUNK_NUM_I.0..CHUNK_NUM_I.0 {
+            for y in -CHUNK_NUM_I.1..CHUNK_NUM_I.1 {
+                for z in -CHUNK_NUM_I.2..CHUNK_NUM_I.2 {
+                    let p = IVec3::new(x,y,z);
+                    if p.map(|x|x as f32).norm() <= draw_chunks {
+                        to_load.push(chunk_pos+p);
                     }
                 }
             }
@@ -143,10 +143,9 @@ impl Server {
         let mut to_send = Vec::new();
         let mut to_pass = Vec::new();
         for p in to_load {
-            let p2 = as_vec(p);
             match self.chunks.get(&p) {
-                Some(chunk) => to_pass.push((p2,chunk.clone())),
-                None        => to_send.push(p2),
+                Some(chunk) => to_pass.push((p,chunk.clone())),
+                None        => to_send.push(p),
             }
             match self.refs.get_mut(&p) {
                 Some(x) => *x += 1, // This is indeed possible but ugly; see Todo below
@@ -178,13 +177,13 @@ impl Server {
 
         let mut around_old = HashSet::new();
         let mut around_new = HashSet::new();
-        for x in -CHUNK_NUM_I.x..CHUNK_NUM_I.x {
-            for y in -CHUNK_NUM_I.y..CHUNK_NUM_I.y {
-                for z in -CHUNK_NUM_I.z..CHUNK_NUM_I.z {
-                    let p = ivec3(x,y,z);
-                    if length(to_vec3(p)) <= draw_chunks {
-                        around_old.insert(as_tuple(chunk_old+p));
-                        around_new.insert(as_tuple(chunk_new+p));
+        for x in -CHUNK_NUM_I.0..CHUNK_NUM_I.0 {
+            for y in -CHUNK_NUM_I.1..CHUNK_NUM_I.1 {
+                for z in -CHUNK_NUM_I.2..CHUNK_NUM_I.2 {
+                    let p = IVec3::new(x,y,z);
+                    if p.map(|x|x as f32).norm() <= draw_chunks {
+                        around_old.insert(chunk_old+p);
+                        around_new.insert(chunk_new+p);
                     }
                 }
             }
@@ -215,10 +214,9 @@ impl Server {
         let mut to_send = Vec::new();
         let mut to_pass = Vec::new();
         for p in to_load {
-            let p2 = as_vec(p);
             match self.chunks.get(&p) {
-                Some(chunk) => to_pass.push((p2,chunk.clone())),
-                None        => to_send.push(p2),
+                Some(chunk) => to_pass.push((p,chunk.clone())),
+                None        => to_send.push(p),
             }
             match self.refs.get_mut(&p) {
                 Some(x) => *x += 1, // This is indeed possible but ugly; see Todo below
