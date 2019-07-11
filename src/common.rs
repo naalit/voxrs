@@ -4,6 +4,9 @@
 /// - `IVec3` is a chunk location in world-space, in increments of 1 chunk
 
 pub use nalgebra as na;
+pub use nphysics3d as np;
+pub use ncollide3d as nc;
+pub use np::object::Body;
 pub use nalgebra::{Vector3, Point3, Isometry3, Scalar, Unit};
 use std::sync::mpsc::*;
 

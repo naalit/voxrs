@@ -68,8 +68,11 @@ impl Camera {
         };
     }
 
-    pub fn update(&mut self, delta: f64, resolution: (u32, u32)) {
-        self.pos = self.pos + self.dir * self.moving.x * delta as f32 * 8.0;
+    pub fn update(&mut self, delta: f64, resolution: (u32, u32), player: &mut np::object::Body<f32>) {
+        let player = player.downcast_mut::<np::object::RigidBody<f32>>().unwrap();
+        player.apply_force(0, &np::algebra::Force3::new(self.dir * self.moving.x * 50.0, Vec3::zeros()), np::algebra::ForceType::Impulse, true);
+        self.pos = Point3::from(player.position().translation.vector);
+//        self.pos = self.pos + self.dir * self.moving.x * delta as f32 * 8.0;
 
         let camera_up = Unit::new_normalize(Vec3::new(0.0, 1.0, 0.0));
         let q = na::Rotation3::from_axis_angle(&camera_up, self.rx / resolution.0 as f32 * -6.28)
@@ -197,8 +200,11 @@ pub struct Client {
     camera: Camera,
     chunks: HashMap<IVec3, Arc<RwLock<Chunk>>>,
     meshes: HashMap<IVec3, Mesh>,
+    colliders: HashMap<IVec3, np::object::ColliderHandle>,
     display: Display,
     aux: (Sender<Message>, Receiver<ClientMessage>),
+    world: np::world::World<f32>,
+    player_handle: np::object::BodyHandle,
 }
 
 impl Client {
@@ -206,13 +212,27 @@ impl Client {
         let (to, from_them) = channel();
         let (to_them, from) = channel();
         std::thread::spawn(move || client_aux_thread(conn, (to_them, from_them), player));
+        let mut world = np::world::World::new();
+        world.set_gravity(Vec3::y() * -9.81);
+
+        let player_shape = nc::shape::ShapeHandle::new(nc::shape::Capsule::new(1.0, 0.25));
+        let player_collider = np::object::ColliderDesc::new(player_shape);
+        let player_handle = np::object::RigidBodyDesc::new()
+            .collider(&player_collider)
+            .translation(player)
+            .mass(90.0) // In kg, and this person is 2 meters tall
+            .build(&mut world)
+            .handle();
 
         Client {
             camera: Camera::new(player.into()),
             chunks: HashMap::with_capacity((CHUNK_NUM.0 * CHUNK_NUM.1 * CHUNK_NUM.2 / 2) as usize),
             meshes: HashMap::with_capacity((CHUNK_NUM.0 * CHUNK_NUM.1 * CHUNK_NUM.2 / 2) as usize),
+            colliders: HashMap::with_capacity((CHUNK_NUM.0 * CHUNK_NUM.1 * CHUNK_NUM.2 / 2) as usize),
             display,
             aux: (to, from),
+            world,
+            player_handle,
         }
     }
 
@@ -279,6 +299,10 @@ impl Client {
             .unwrap()
             .into();
 
+        if self.meshes.len() != 0 {
+            self.world.step(); // TODO: make timestep match delta?
+        }
+
         let mut camera = self.camera.clone(); // Because we can't borrow self.camera in the closure
         evloop.poll_events(|event| match event {
             glutin::Event::WindowEvent {
@@ -302,7 +326,7 @@ impl Client {
             }
             _ => (),
         });
-        camera.update(delta, resolution);
+        camera.update(delta, resolution, self.world.body_mut(self.player_handle).unwrap());
         self.camera = camera;
 
         if let Ok(chunks) = self.aux.1.try_recv() {
@@ -367,11 +391,20 @@ impl Client {
     /// Uploads everything to the GPU
     pub fn load_chunks(
         &mut self,
-        chunks: Vec<(IVec3, Vec<crate::mesh::Vertex>, Arc<RwLock<Chunk>>)>,
+        chunks: ClientMessage,
     ) {
         self.prune_chunks();
 
-        for (i, v, c) in chunks {
+        for (i, v, s, c) in chunks {
+            // TODO indices
+            if let Some(chunk_shape) = s {
+                let chunk_collider = np::object::ColliderDesc::new(chunk_shape)
+                    .translation(i.map(|x| x as f32) * CHUNK_SIZE)
+                    .build_with_parent(np::object::BodyPartHandle::ground(), &mut self.world)
+                    .unwrap();
+                self.colliders.insert(i, chunk_collider.handle());
+            }
+
             let mesh = Mesh::new(
                 &self.display,
                 v,
@@ -389,6 +422,9 @@ impl Client {
     pub fn unload(&mut self, idx: IVec3) {
         self.chunks.remove(&idx);
         self.meshes.remove(&idx);
+        if let Some(handle) = self.colliders.remove(&idx) {
+            self.world.remove_colliders(&[handle]);
+        }
     }
 
     /// Unloads chunks that are too far away

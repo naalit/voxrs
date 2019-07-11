@@ -6,7 +6,12 @@ use crate::mesh::*;
 use std::sync::mpsc::*;
 use std::sync::{Arc, RwLock};
 
-pub type ClientMessage = Vec<(IVec3, Vec<Vertex>, Arc<RwLock<Chunk>>)>;
+pub type ClientMessage = Vec<(
+    IVec3,
+    Vec<Vertex>,
+    Option<nc::shape::ShapeHandle<f32>>,
+    Arc<RwLock<Chunk>>,
+)>;
 
 pub fn client_aux_thread(
     server: Connection,
@@ -31,6 +36,21 @@ pub fn client_aux_thread(
                     let meshed = chunks
                         .into_iter()
                         .map(|(loc, chunk)| (loc, mesh(&chunk), Arc::new(RwLock::new(chunk))))
+                        .map(|(loc, mesh, chunk)| {
+                            if mesh.len() != 0 {
+                                let v_physics: Vec<_> =
+                                    mesh.iter().map(|x| na::Point3::from(x.pos)).collect();
+                                let i_physics: Vec<_> = (0..v_physics.len() / 3)
+                                    .map(|x| na::Point3::new(x * 3, x * 3 + 1, x * 3 + 2))
+                                    .collect();
+                                let chunk_shape = nc::shape::ShapeHandle::new(
+                                    nc::shape::TriMesh::new(v_physics, i_physics, None),
+                                );
+                                (loc, mesh, Some(chunk_shape), chunk)
+                            } else {
+                                (loc, mesh, None, chunk)
+                            }
+                        })
                         .collect();
                     client.0.send(meshed).unwrap();
                 }

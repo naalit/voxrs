@@ -6,7 +6,7 @@ use std::rc::Rc;
 
 #[derive(Copy, Clone)]
 pub struct Vertex {
-    pos: [f32; 3],
+    pub pos: [f32; 3],
     nor: [f32; 3],
     mat: u32,
 }
