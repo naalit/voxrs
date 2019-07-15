@@ -14,6 +14,7 @@ use num_traits::identities::*;
 mod chunk;
 mod client;
 mod client_aux;
+mod config;
 mod common;
 mod input;
 mod material;

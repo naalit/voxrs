@@ -136,7 +136,7 @@ struct DrawStuff<'a> {
 }
 
 impl<'a> DrawStuff<'a> {
-    fn new(display: &Display, resolution: (u32, u32)) -> Self {
+    fn new(display: &Display, resolution: (u32, u32), config: Arc<ClientConfig>) -> Self {
         let vshader = shader("gbuff.vert".to_string(), &[]);
         let fshader = shader("gbuff.frag".to_string(), &[]);
         let gbuff_program = glium::Program::from_source(display, &vshader, &fshader, None).unwrap();
@@ -184,6 +184,8 @@ impl<'a> DrawStuff<'a> {
                     write: true,
                     ..Default::default()
                 },
+                polygon_mode: if config.wireframe { glium::draw_parameters::PolygonMode::Line } else { glium::draw_parameters::PolygonMode::Fill },
+                line_width: if config.wireframe { Some(2.0) } else { None },
                 ..Default::default()
             },
             gbuff_program,
@@ -205,13 +207,21 @@ pub struct Client {
     aux: (Sender<Message>, Receiver<ClientMessage>),
     world: np::world::World<f32>,
     player_handle: np::object::BodyHandle,
+    config: Arc<ClientConfig>,
 }
 
 impl Client {
     pub fn new(display: Display, conn: Connection, player: Vec3) -> Self {
+        let config = Arc::new(ClientConfig {
+            mesher: Box::new(Greedy),
+            wireframe: false,
+            game_config: GameConfig {},
+        });
+
         let (to, from_them) = channel();
         let (to_them, from) = channel();
-        std::thread::spawn(move || client_aux_thread(conn, (to_them, from_them), player));
+        let two = Arc::clone(&config);
+        std::thread::spawn(move || client_aux_thread(conn, (to_them, from_them), player, two));
         let mut world = np::world::World::new();
         world.set_gravity(Vec3::y() * -9.81);
 
@@ -233,6 +243,7 @@ impl Client {
             aux: (to, from),
             world,
             player_handle,
+            config,
         }
     }
 
@@ -340,7 +351,7 @@ impl Client {
 
     /// Runs the game loop on the client side
     pub fn game_loop(mut self, resolution: (u32, u32), mut evloop: EventsLoop) {
-        let draw_stuff = DrawStuff::new(&self.display, resolution);
+        let draw_stuff = DrawStuff::new(&self.display, resolution, Arc::clone(&self.config));
 
         let mut gbuff_fb = glium::framebuffer::SimpleFrameBuffer::with_depth_buffer(
             &self.display,
@@ -377,7 +388,7 @@ impl Client {
         let chunk_rc = self.chunks.get(&chunk).unwrap();
         chunk_rc.write().unwrap()[in_chunk.x as usize][in_chunk.y as usize][in_chunk.z as usize] =
             new;
-        let verts = mesh(&chunk_rc.read().unwrap());
+        let verts = self.config.mesher.mesh(&chunk_rc.read().unwrap());
         let mesh = Mesh::new(
             &self.display,
             verts,

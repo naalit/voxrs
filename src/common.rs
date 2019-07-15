@@ -10,6 +10,8 @@ pub use np::object::Body;
 pub use nalgebra::{Vector3, Point3, Isometry3, Scalar, Unit};
 use std::sync::mpsc::*;
 
+pub use crate::config::*;
+
 const RD: u32 = 16;
 pub const CHUNK_NUM: (u32, u32, u32) = (RD, 16, RD);
 pub const CHUNK_NUM_I: (i32, i32, i32) = (CHUNK_NUM.0 as i32 / 2, CHUNK_NUM.1 as i32 / 2, CHUNK_NUM.2 as i32 / 2);

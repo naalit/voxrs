@@ -17,6 +17,7 @@ pub fn client_aux_thread(
     server: Connection,
     client: (Sender<ClientMessage>, Receiver<Message>),
     player: Vec3,
+    config: Arc<ClientConfig>,
 ) {
     // This is a timer for sending player movement to the server. We don't want to do it too often, just around 20 times per second.
     // So, we only send it when this timer is past 50ms
@@ -35,7 +36,7 @@ pub fn client_aux_thread(
                     */
                     let meshed = chunks
                         .into_iter()
-                        .map(|(loc, chunk)| (loc, mesh(&chunk), Arc::new(RwLock::new(chunk))))
+                        .map(|(loc, chunk)| (loc, config.mesher.mesh(&chunk), Arc::new(RwLock::new(chunk))))
                         .map(|(loc, mesh, chunk)| {
                             if mesh.len() != 0 {
                                 let v_physics: Vec<_> =
