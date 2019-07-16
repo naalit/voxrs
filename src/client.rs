@@ -71,7 +71,7 @@ impl Camera {
     pub fn update(&mut self, delta: f64, resolution: (u32, u32), player: &mut np::object::Body<f32>) {
         let player = player.downcast_mut::<np::object::RigidBody<f32>>().unwrap();
         player.apply_force(0, &np::algebra::Force3::new(self.dir * self.moving.x * 50.0, Vec3::zeros()), np::algebra::ForceType::Impulse, true);
-        self.pos = Point3::from(player.position().translation.vector);
+        self.pos = Point3::from(player.position().translation.vector) + Vec3::new(0.0, 0.4, 0.0);
 //        self.pos = self.pos + self.dir * self.moving.x * delta as f32 * 8.0;
 
         let camera_up = Unit::new_normalize(Vec3::new(0.0, 1.0, 0.0));
@@ -225,8 +225,9 @@ impl Client {
         let mut world = np::world::World::new();
         world.set_gravity(Vec3::y() * -9.81);
 
-        let player_shape = nc::shape::ShapeHandle::new(nc::shape::Capsule::new(1.0, 0.25));
-        let player_collider = np::object::ColliderDesc::new(player_shape);
+        let player_shape = nc::shape::ShapeHandle::new(nc::shape::Capsule::new(0.7, 0.25));
+        let player_collider = np::object::ColliderDesc::new(player_shape)
+            .name("player".to_string());
         let player_handle = np::object::RigidBodyDesc::new()
             .collider(&player_collider)
             .translation(player)
@@ -381,14 +382,23 @@ impl Client {
     }
 
     pub fn set_block(&mut self, loc: IVec3, new: Material) {
-        println!("Setting {:?} to {:?}", loc, new);
-        let chunk = loc / CHUNK_SIZE as i32;
-        let in_chunk = na::wrap(loc, Vector3::zeros(), Vector3::repeat(CHUNK_SIZE as i32)); //((loc % CHUNK_SIZE as i32) + CHUNK_SIZE as i32) % CHUNK_SIZE as i32;
+        let chunk = world_to_chunk(loc.map(|x| x as f32));
+        let in_chunk = in_chunk(loc.map(|x| x as f32));
 
         let chunk_rc = self.chunks.get(&chunk).unwrap();
-        chunk_rc.write().unwrap()[in_chunk.x as usize][in_chunk.y as usize][in_chunk.z as usize] =
+        chunk_rc.write().unwrap()[in_chunk.x][in_chunk.y][in_chunk.z] =
             new;
+            
         let verts = self.config.mesher.mesh(&chunk_rc.read().unwrap());
+        let v_physics: Vec<_> =
+            verts.iter().map(|x| na::Point3::from(x.pos)).collect();
+        let i_physics: Vec<_> = (0..v_physics.len() / 3)
+            .map(|x| na::Point3::new(x * 3, x * 3 + 1, x * 3 + 2))
+            .collect();
+        let chunk_shape = nc::shape::ShapeHandle::new(
+            nc::shape::TriMesh::new(v_physics, i_physics, None),
+        );
+
         let mesh = Mesh::new(
             &self.display,
             verts,
@@ -396,6 +406,13 @@ impl Client {
             Vec3::new(0.0, 0.0, 0.0),
         );
         self.meshes.insert(chunk, mesh); //.expect(&format!("Chunk {:?}", chunk));
+        self.world.remove_colliders(&[self.colliders.remove(&chunk).unwrap()]);
+
+        let chunk_collider = np::object::ColliderDesc::new(chunk_shape)
+            .translation(chunk.map(|x| x as f32) * CHUNK_SIZE)
+            .build_with_parent(np::object::BodyPartHandle::ground(), &mut self.world)
+            .unwrap();
+        self.colliders.insert(chunk, chunk_collider.handle());
     }
 
     /// Load a bunch of chunks at once. Prunes the root as well
@@ -478,53 +495,24 @@ fn isect_cube(cell: IVec3, ro: Vec3, rd: Vec3) -> Intersection {
 
 impl Client {
     pub fn trace(&self, ro: Vec3, rd: Vec3, max_iter: u32) -> Option<Intersection> {
-        let ro_chunk = world_to_chunk(ro);
+        let ray = nc::query::Ray::new(ro.into(), rd);
 
-        let mut ipos = ro.map(|x| x as i32);
-        let mut last_chunk_p = ipos / CHUNK_SIZE as i32;
-        assert_eq!(ro_chunk, last_chunk_p);
-        let mut last_chunk_rc = self.chunks.get(&last_chunk_p)?;
-        let tdelta = rd.map(|x| 1.0 / x.abs());
-        let istep = rd.map(|x| x.signum() as i32);
-        let srd = rd.map(|x| x.signum());
-        let mut side_dist =
-            (srd.component_mul(&(ro.map(|x| x.floor()) - ro)) + (srd * 0.5) + Vec3::repeat(0.5))
-                .component_mul(&tdelta);
+        let g = nc::world::CollisionGroups::default();
+        let it = self.world.collider_world().interferences_with_ray(&ray, &g);
 
-        for _ in 0..max_iter {
-            let cur_chunk = ipos / CHUNK_SIZE as i32;
-            if cur_chunk != last_chunk_p {
-                last_chunk_p = cur_chunk;
-                last_chunk_rc = self.chunks.get(&last_chunk_p)?;
-            }
-            // This makes sure to wrap around negatives and get the right numbers
-            let in_chunk = na::wrap(ipos, Vector3::zeros(), Vector3::repeat(CHUNK_SIZE as i32)); //((ipos % CHUNK_SIZE as i32) + CHUNK_SIZE as i32) % CHUNK_SIZE as i32;
+        let first = it.filter(|x| x.0.name() != "player").min_by(|a,b| a.1.toi.partial_cmp(&b.1.toi).unwrap_or(std::cmp::Ordering::Equal))?;
+        let pos = ro + first.1.toi * rd;
+        // let c = world_to_chunk(pos);
 
-            let block = last_chunk_rc.read().unwrap()[in_chunk.x as usize][in_chunk.y as usize]
-                [in_chunk.z as usize];
-            if !block.pick_through() {
-                return Some(isect_cube(ipos, ro, rd));
-            }
+        println!("t = {}", first.1.toi);
+        println!("p = {:?}", pos);
+        println!("n = {:?}", first.1.normal);
 
-            // Advance
-            if side_dist.x < side_dist.y {
-                if side_dist.x < side_dist.z {
-                    side_dist.x += tdelta.x;
-                    ipos.x += istep.x;
-                } else {
-                    side_dist.z += tdelta.z;
-                    ipos.z += istep.z;
-                }
-            } else {
-                if side_dist.y < side_dist.z {
-                    side_dist.y += tdelta.y;
-                    ipos.y += istep.y;
-                } else {
-                    side_dist.z += tdelta.z;
-                    ipos.z += istep.z;
-                }
-            }
-        }
-        None
+        Some(Intersection{
+            pos,
+            cell: (pos - 0.1 * first.1.normal).map(|x|x as i32 - if x < 0.0 { 1 } else { 0 }),
+            t: first.1.toi,
+            normal: first.1.normal,
+        })
     }
 }

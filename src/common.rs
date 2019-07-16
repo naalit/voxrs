@@ -42,9 +42,12 @@ pub fn chunk_to_world(chunk: IVec3) -> Vec3 {
     chunk.map(|x| x as f32 + 0.5) * CHUNK_SIZE
 }
 pub fn world_to_chunk(world: Vec3) -> IVec3 {
-    (world / CHUNK_SIZE).map(|x| x as i32)
+    world.map(|x| x as i32 + if x < 0.0 { 1 } else { 0 }) / CHUNK_SIZE as i32 - world.map(|x| if x < 0.0 { 1 } else { 0 })
 }
-
+/// The index of a block within its home chunk
+pub fn in_chunk(world: Vec3) -> Vector3<usize> {
+    world.map(|x| ((x as i32 % CHUNK_SIZE as i32) + CHUNK_SIZE as i32) as usize % CHUNK_SIZE as usize)
+}
 
 //pub type Material = u16;
 pub use crate::material::*;

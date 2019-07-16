@@ -30,9 +30,7 @@ pub struct Mesh {
 impl Mesh {
     pub fn new(display: &Display, verts: Vec<Vertex>, loc: Vec3, rot: Vec3) -> Self {
         let empty = verts.len() == 0;
-        if !empty {
-            println!("Mesh length: {}", verts.len());
-        }
+        
         let model = Isometry3::from_parts(
             Translation::from(loc),
             UnitQuaternion::from_euler_angles(rot.x, rot.y, rot.z),
