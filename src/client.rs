@@ -68,11 +68,21 @@ impl Camera {
         };
     }
 
-    pub fn update(&mut self, delta: f64, resolution: (u32, u32), player: &mut np::object::Body<f32>) {
+    pub fn update(
+        &mut self,
+        delta: f64,
+        resolution: (u32, u32),
+        player: &mut np::object::Body<f32>,
+    ) {
         let player = player.downcast_mut::<np::object::RigidBody<f32>>().unwrap();
-        player.apply_force(0, &np::algebra::Force3::new(self.dir * self.moving.x * 50.0, Vec3::zeros()), np::algebra::ForceType::Impulse, true);
+        player.apply_force(
+            0,
+            &np::algebra::Force3::new(self.dir * self.moving.x * 50.0, Vec3::zeros()),
+            np::algebra::ForceType::Impulse,
+            true,
+        );
         self.pos = Point3::from(player.position().translation.vector) + Vec3::new(0.0, 0.4, 0.0);
-//        self.pos = self.pos + self.dir * self.moving.x * delta as f32 * 8.0;
+        //        self.pos = self.pos + self.dir * self.moving.x * delta as f32 * 8.0;
 
         let camera_up = Unit::new_normalize(Vec3::new(0.0, 1.0, 0.0));
         let q = na::Rotation3::from_axis_angle(&camera_up, self.rx / resolution.0 as f32 * -6.28)
@@ -184,7 +194,11 @@ impl<'a> DrawStuff<'a> {
                     write: true,
                     ..Default::default()
                 },
-                polygon_mode: if config.wireframe { glium::draw_parameters::PolygonMode::Line } else { glium::draw_parameters::PolygonMode::Fill },
+                polygon_mode: if config.wireframe {
+                    glium::draw_parameters::PolygonMode::Line
+                } else {
+                    glium::draw_parameters::PolygonMode::Fill
+                },
                 line_width: if config.wireframe { Some(2.0) } else { None },
                 ..Default::default()
             },
@@ -225,9 +239,10 @@ impl Client {
         let mut world = np::world::World::new();
         world.set_gravity(Vec3::y() * -9.81);
 
-        let player_shape = nc::shape::ShapeHandle::new(nc::shape::Capsule::new(0.7, 0.25));
+        let player_shape = nc::shape::ShapeHandle::new(nc::shape::Capsule::new(0.65, 0.25));
         let player_collider = np::object::ColliderDesc::new(player_shape)
-            .name("player".to_string());
+            .name("player".to_string())
+            .margin(0.05);
         let player_handle = np::object::RigidBodyDesc::new()
             .collider(&player_collider)
             .translation(player)
@@ -239,7 +254,9 @@ impl Client {
             camera: Camera::new(player.into()),
             chunks: HashMap::with_capacity((CHUNK_NUM.0 * CHUNK_NUM.1 * CHUNK_NUM.2 / 2) as usize),
             meshes: HashMap::with_capacity((CHUNK_NUM.0 * CHUNK_NUM.1 * CHUNK_NUM.2 / 2) as usize),
-            colliders: HashMap::with_capacity((CHUNK_NUM.0 * CHUNK_NUM.1 * CHUNK_NUM.2 / 2) as usize),
+            colliders: HashMap::with_capacity(
+                (CHUNK_NUM.0 * CHUNK_NUM.1 * CHUNK_NUM.2 / 2) as usize,
+            ),
             display,
             aux: (to, from),
             world,
@@ -299,6 +316,38 @@ impl Client {
                 &Default::default(),
             )
             .unwrap();
+
+        // Draw p2 chunks onto the G-Buffer
+        for (_loc, mesh) in self.meshes.iter() {
+            mesh.draw_p2(
+                gbuff_fb,
+                &draw_stuff.gbuff_program,
+                &draw_stuff.params,
+                uniform! {
+                    proj_mat: proj_mat,
+                    // mat_buf: &self.draw_stuff.mat_buf,
+                    // camera_pos: *self.camera.pos.as_array(),
+                },
+            );
+        }
+
+        // Draw a fullscreen quad and shade using the p2 G-Buffer
+        target
+            .draw(
+                &draw_stuff.quad,
+                &glium::index::NoIndices(glium::index::PrimitiveType::TriangleStrip),
+                &draw_stuff.shade_program,
+                &uniform! {
+                    mat_buf: &draw_stuff.mat_buf,
+                    camera_pos: <[f32; 3]>::from(self.pos().into()),
+                    gbuff: &draw_stuff.gbuff,
+                },
+                &glium::draw_parameters::DrawParameters {
+                    blend: Blend::alpha_blending(),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
     }
 
     pub fn update(&mut self, evloop: &mut EventsLoop, delta: f64) -> bool {
@@ -338,7 +387,11 @@ impl Client {
             }
             _ => (),
         });
-        camera.update(delta, resolution, self.world.body_mut(self.player_handle).unwrap());
+        camera.update(
+            delta,
+            resolution,
+            self.world.body_mut(self.player_handle).unwrap(),
+        );
         self.camera = camera;
 
         if let Ok(chunks) = self.aux.1.try_recv() {
@@ -386,44 +439,67 @@ impl Client {
         let in_chunk = in_chunk(loc.map(|x| x as f32));
 
         let chunk_rc = self.chunks.get(&chunk).unwrap();
-        chunk_rc.write().unwrap()[in_chunk.x][in_chunk.y][in_chunk.z] =
-            new;
-            
-        let verts = self.config.mesher.mesh(&chunk_rc.read().unwrap());
-        let v_physics: Vec<_> =
-            verts.iter().map(|x| na::Point3::from(x.pos)).collect();
+        chunk_rc.write().unwrap()[in_chunk.x][in_chunk.y][in_chunk.z] = new;
+
+        self.remesh(chunk);
+        neighbors(chunk).into_iter().for_each(|x| {
+            self.remesh(x);
+        });
+    }
+
+    fn remesh(&mut self, chunk: IVec3) -> Option<()> {
+        let chunk_rc = self.chunks.get(&chunk).unwrap();
+        let neighbors: Vec<Arc<RwLock<Chunk>>> = neighbors(chunk)
+            .into_iter()
+            .filter_map(|x| self.chunks.get(&x))
+            .cloned()
+            .collect();
+        // This is kind of messy, but it works
+        if neighbors.len() != crate::mesh::neighbors(chunk).len() {
+            return None;
+        }
+
+        let verts = self
+            .config
+            .mesher
+            .mesh(&chunk_rc.read().unwrap(), neighbors.clone(), false);
+        let verts_p2 = self
+            .config
+            .mesher
+            .mesh(&chunk_rc.read().unwrap(), neighbors, true);
+        let v_physics: Vec<_> = verts.iter().map(|x| na::Point3::from(x.pos)).collect();
         let i_physics: Vec<_> = (0..v_physics.len() / 3)
             .map(|x| na::Point3::new(x * 3, x * 3 + 1, x * 3 + 2))
             .collect();
-        let chunk_shape = nc::shape::ShapeHandle::new(
-            nc::shape::TriMesh::new(v_physics, i_physics, None),
-        );
+        let chunk_shape =
+            nc::shape::ShapeHandle::new(nc::shape::TriMesh::new(v_physics, i_physics, None));
 
         let mesh = Mesh::new(
             &self.display,
             verts,
+            verts_p2,
             chunk.map(|x| x as f32) * CHUNK_SIZE,
             Vec3::new(0.0, 0.0, 0.0),
         );
-        self.meshes.insert(chunk, mesh); //.expect(&format!("Chunk {:?}", chunk));
-        self.world.remove_colliders(&[self.colliders.remove(&chunk).unwrap()]);
+        self.meshes.insert(chunk, mesh);
+        self.world
+            .remove_colliders(&[self.colliders.remove(&chunk)?]);
 
         let chunk_collider = np::object::ColliderDesc::new(chunk_shape)
             .translation(chunk.map(|x| x as f32) * CHUNK_SIZE)
             .build_with_parent(np::object::BodyPartHandle::ground(), &mut self.world)
             .unwrap();
         self.colliders.insert(chunk, chunk_collider.handle());
+
+        Some(())
     }
 
     /// Load a bunch of chunks at once. Prunes the root as well
     /// Uploads everything to the GPU
-    pub fn load_chunks(
-        &mut self,
-        chunks: ClientMessage,
-    ) {
+    pub fn load_chunks(&mut self, chunks: ClientMessage) {
         self.prune_chunks();
 
-        for (i, v, s, c) in chunks {
+        for (i, v, v2, s, c) in chunks {
             // TODO indices
             if let Some(chunk_shape) = s {
                 let chunk_collider = np::object::ColliderDesc::new(chunk_shape)
@@ -436,6 +512,7 @@ impl Client {
             let mesh = Mesh::new(
                 &self.display,
                 v,
+                v2,
                 i.map(|x| x as f32) * CHUNK_SIZE,
                 Vec3::new(0.0, 0.0, 0.0),
             );
@@ -500,7 +577,11 @@ impl Client {
         let g = nc::world::CollisionGroups::default();
         let it = self.world.collider_world().interferences_with_ray(&ray, &g);
 
-        let first = it.filter(|x| x.0.name() != "player").min_by(|a,b| a.1.toi.partial_cmp(&b.1.toi).unwrap_or(std::cmp::Ordering::Equal))?;
+        let first = it.filter(|x| x.0.name() != "player").min_by(|a, b| {
+            a.1.toi
+                .partial_cmp(&b.1.toi)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })?;
         let pos = ro + first.1.toi * rd;
         // let c = world_to_chunk(pos);
 
@@ -508,9 +589,9 @@ impl Client {
         println!("p = {:?}", pos);
         println!("n = {:?}", first.1.normal);
 
-        Some(Intersection{
+        Some(Intersection {
             pos,
-            cell: (pos - 0.1 * first.1.normal).map(|x|x as i32 - if x < 0.0 { 1 } else { 0 }),
+            cell: (pos - 0.1 * first.1.normal).map(|x| x as i32 - if x < 0.0 { 1 } else { 0 }),
             t: first.1.toi,
             normal: first.1.normal,
         })

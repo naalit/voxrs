@@ -1,7 +1,9 @@
 // This is the client auxilary thread, which is in charge of recieving chunks, meshing them, and sending them to the client thread.
 
-use crate::common::*;
+use std::collections::HashSet;
 use crate::mesh::Vertex;
+use crate::common::*;
+use crate::mesh::*;
 use std::collections::HashMap;
 use std::sync::mpsc::*;
 use std::sync::{Arc, RwLock};
@@ -9,6 +11,7 @@ use std::sync::{Arc, RwLock};
 pub type ClientMessage = Vec<(
     IVec3,
     Vec<Vertex>,
+    Vec<Vertex>, // Phase2
     Option<nc::shape::ShapeHandle<f32>>,
     Arc<RwLock<Chunk>>,
 )>;
@@ -41,11 +44,22 @@ pub fn client_aux_thread(
             continue;
         }
         if indices.len() != 0 {
-            let meshed = indices
-                .drain(0..8.min(indices.len()))
-                .map(|loc| (loc,chunk_map.remove(&loc).unwrap()))
-                .map(|(loc, chunk)| (loc, config.mesher.mesh(&chunk.read().unwrap()), Arc::clone(&chunk)))
-                .map(|(loc, mesh, chunk)| {
+            let meshed: Vec<_> = indices
+                .iter()
+                .take(8.min(indices.len()))
+                .cloned()
+                .map(|loc| (loc,chunk_map.get(&loc).unwrap()))
+                .filter_map(|(loc, chunk)| {
+                    let neighbors = neighbors(loc).into_iter().map(|x| chunk_map.get(&x));
+                    if neighbors.clone().all(|x|x.is_some()) {
+                        let neighbors: Vec<Arc<RwLock<Chunk>>> = neighbors.map(|x|x.unwrap()).cloned().collect();
+                        Some((loc,chunk,neighbors))
+                    } else {
+                        None
+                    }
+                })
+                .map(|(loc, chunk, neighbors)| (loc, config.mesher.mesh(&chunk.read().unwrap(), neighbors.clone(), false), config.mesher.mesh(&chunk.read().unwrap(), neighbors, true), Arc::clone(&chunk)))
+                .map(|(loc, mesh, mesh_p2, chunk)| {
                     if mesh.len() != 0 {
                         let v_physics: Vec<_> =
                             mesh.iter().map(|x| na::Point3::from(x.pos)).collect();
@@ -55,12 +69,14 @@ pub fn client_aux_thread(
                         let chunk_shape = nc::shape::ShapeHandle::new(
                             nc::shape::TriMesh::new(v_physics, i_physics, None),
                         );
-                        (loc, mesh, Some(chunk_shape), chunk)
+                        (loc, mesh, mesh_p2, Some(chunk_shape), chunk)
                     } else {
-                        (loc, mesh, None, chunk)
+                        (loc, mesh, mesh_p2, None, chunk)
                     }
                 })
                 .collect();
+            let r = meshed.iter().map(|x|x.0).collect::<HashSet<_>>();
+            indices.retain(|x| !r.contains(x));
             client.0.send(meshed).unwrap();
             counter += 1;
 
@@ -85,8 +101,8 @@ pub fn client_aux_thread(
                         chunks.iter().map(|x| x.0).collect::<Vec<IVec3>>()
                     );
                     */
+                    indices.extend(chunks.iter().map(|x|x.0));
                     chunk_map.extend(chunks.into_iter().map(|(x,y)| (x,Arc::new(RwLock::new(y))) ));
-                    indices = chunk_map.keys().cloned().collect();
                     indices.sort_by_key(|x| ((chunk_to_world(*x) - player).norm() * 10.0) as i32);
                     while indices.len() != 0 && (chunk_to_world(*indices.last().unwrap()) - player).norm() > DRAW_DIST {
                         let r = indices.pop().unwrap();

@@ -47,6 +47,8 @@ impl Gen {
                                     Material::Dirt
                                 } else if (y as f32 + start.y) < height {
                                     Material::Stone
+                                } else if (y as f32 + start.y) < 0.0 {
+                                    Material::Water
                                 } else {
                                     Material::Air
                                 }

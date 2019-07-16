@@ -79,5 +79,5 @@ void main() {
     col = vec3(1.0);
     #endif
     #endif
-    frag_color = vec4(col, 1.0);
+    frag_color = vec4(col, 1.0 - mat.trans);
 }

@@ -3,6 +3,8 @@ use crate::num_traits::One;
 use glium::*;
 use nalgebra::{Translation, UnitQuaternion};
 use std::rc::Rc;
+use std::sync::Arc;
+use std::sync::RwLock;
 
 #[derive(Copy, Clone)]
 pub struct Vertex {
@@ -23,14 +25,23 @@ pub fn vert(p: Vec3, n: Vec3, m: Material) -> Vertex {
 
 pub struct Mesh {
     empty: bool,
+    empty_p2: bool, // For phase 2, where we draw transparent things
     vbuff: Option<Rc<VertexBuffer<Vertex>>>,
+    vbuff_p2: Option<Rc<VertexBuffer<Vertex>>>,
     model_mat: [[f32; 4]; 4],
 }
 
 impl Mesh {
-    pub fn new(display: &Display, verts: Vec<Vertex>, loc: Vec3, rot: Vec3) -> Self {
+    pub fn new(
+        display: &Display,
+        verts: Vec<Vertex>,
+        verts_p2: Vec<Vertex>,
+        loc: Vec3,
+        rot: Vec3,
+    ) -> Self {
         let empty = verts.len() == 0;
-        
+        let empty_p2 = verts_p2.len() == 0;
+
         let model = Isometry3::from_parts(
             Translation::from(loc),
             UnitQuaternion::from_euler_angles(rot.x, rot.y, rot.z),
@@ -41,11 +52,19 @@ impl Mesh {
         } else {
             Some(Rc::new(VertexBuffer::new(display, &verts).unwrap()))
         };
+        let vbuff_p2 = if empty {
+            None
+        } else {
+            Some(Rc::new(VertexBuffer::new(display, &verts_p2).unwrap()))
+        };
+
         let model_mat: [[f32; 4]; 4] = *model.to_homogeneous().as_ref();
 
         Mesh {
             empty,
+            empty_p2,
             vbuff,
+            vbuff_p2,
             model_mat,
         }
     }
@@ -61,6 +80,26 @@ impl Mesh {
             frame
                 .draw(
                     self.vbuff.clone().unwrap().as_ref(),
+                    &glium::index::NoIndices(glium::index::PrimitiveType::TrianglesList),
+                    program,
+                    &uniforms.add("model", self.model_mat),
+                    params,
+                )
+                .unwrap();
+        }
+    }
+
+    pub fn draw_p2<T: glium::uniforms::AsUniformValue, R: glium::uniforms::Uniforms>(
+        &self,
+        frame: &mut impl Surface,
+        program: &Program,
+        params: &DrawParameters,
+        uniforms: glium::uniforms::UniformsStorage<'_, T, R>,
+    ) {
+        if !self.empty_p2 {
+            frame
+                .draw(
+                    self.vbuff_p2.clone().unwrap().as_ref(),
                     &glium::index::NoIndices(glium::index::PrimitiveType::TrianglesList),
                     program,
                     &uniforms.add("model", self.model_mat),
@@ -85,14 +124,41 @@ fn dir(idx: i32) -> Vec3 {
 }
 
 pub trait Mesher: Send + Sync {
-    fn mesh(&self, grid: &Chunk) -> Vec<Vertex>;
+    /// `neighbors` is [-x, +x, -y, +y, -z, +z]
+    fn mesh(&self, grid: &Chunk, neighbors: Vec<Arc<RwLock<Chunk>>>, phase2: bool) -> Vec<Vertex>;
+}
+
+pub fn neighbors(idx: IVec3) -> Vec<IVec3> {
+    [
+        -IVec3::x(),
+        IVec3::x(),
+        -IVec3::y(),
+        IVec3::y(),
+        -IVec3::z(),
+        IVec3::z(),
+    ]
+    .into_iter()
+    .map(|x| idx + x)
+    .collect()
+}
+
+pub fn neighbor_axis(
+    neighbors: &Vec<Arc<RwLock<Chunk>>>,
+    axis: usize,
+) -> (Arc<RwLock<Chunk>>, Arc<RwLock<Chunk>>) {
+    match axis {
+        0 => (neighbors[0].clone(), neighbors[1].clone()),
+        1 => (neighbors[2].clone(), neighbors[3].clone()),
+        2 => (neighbors[4].clone(), neighbors[5].clone()),
+        _ => panic!("Unknown axis: {}", axis),
+    }
 }
 
 pub struct Culled;
 
 impl Mesher for Culled {
     /// This is just naive meshing with culling of interior faces within a chunk
-    fn mesh(&self, grid: &Chunk) -> Vec<Vertex> {
+    fn mesh(&self, grid: &Chunk, neighbors: Vec<Arc<RwLock<Chunk>>>, phase2: bool) -> Vec<Vertex> {
         let mut vertices = Vec::new();
         let lens = IVec3::new(
             grid.len() as i32,
@@ -102,7 +168,7 @@ impl Mesher for Culled {
         for (x, column) in grid.iter().enumerate() {
             for (y, slice) in column.iter().enumerate() {
                 for (z, block) in slice.iter().enumerate() {
-                    if *block != Material::Air {
+                    if *block != Material::Air && block.phase2() == phase2 {
                         let p = Vec3::new(x as f32, y as f32, z as f32);
                         for i in 0..6 {
                             let dir = dir(i);
@@ -113,6 +179,8 @@ impl Mesher for Culled {
                                 || n.y >= lens.y
                                 || n.z >= lens.z
                                 || grid[n.x as usize][n.y as usize][n.z as usize] == Material::Air
+                            // TODO culled mesher doesn't support phase2
+                            // TODO culled mesher doesn't cull blocks at the edge of a chunk
                             {
                                 vertices.append(&mut face(i, p, *block));
                             }
@@ -129,7 +197,7 @@ pub struct Greedy;
 
 impl Mesher for Greedy {
     /// Greedy meshing as in https://0fps.net/2012/06/30/meshing-in-a-minecraft-game/
-    fn mesh(&self, grid: &Chunk) -> Vec<Vertex> {
+    fn mesh(&self, grid: &Chunk, neighbors: Vec<Arc<RwLock<Chunk>>>, phase2: bool) -> Vec<Vertex> {
         let mut vertices = Vec::new();
 
         // Sweep on all three axes
@@ -141,10 +209,47 @@ impl Mesher for Greedy {
             let mut normal = Vec3::zeros();
             normal[d] = 1.0;
 
+            let fb = neighbor_axis(&neighbors, d);
+            let mut last: Vec<Vec<Material>> = {
+                let f: &Chunk = &fb.0.read().unwrap();
+                (0..CHUNK_SIZE as i32)
+                    .map(|u_i| {
+                        (0..CHUNK_SIZE as i32)
+                            .map(|v_i| {
+                                let mut idx = IVec3::zeros();
+                                idx[d] = CHUNK_SIZE as i32 - 1;
+                                idx[u] = u_i;
+                                idx[v] = v_i;
+                                let b = get_block(f, idx);
+                                if b.phase2() == phase2 {
+                                    b
+                                } else {
+                                    Material::Air
+                                }
+                            })
+                            .collect()
+                    })
+                    .collect()
+            };
+
+            let end: Vec<Vec<Material>> = {
+                let b: &Chunk = &fb.1.read().unwrap();
+                (0..CHUNK_SIZE as i32)
+                    .map(|u_i| {
+                        (0..CHUNK_SIZE as i32)
+                            .map(|v_i| {
+                                let mut idx = IVec3::zeros();
+                                idx[d] = 0;
+                                idx[u] = u_i;
+                                idx[v] = v_i;
+                                get_block(b, idx)
+                            })
+                            .collect()
+                    })
+                    .collect()
+            };
+
             // The actual sweeping
-            let mut last: Vec<Vec<Material>> = (0..CHUNK_SIZE as usize)
-                .map(|_| (0..CHUNK_SIZE as usize).map(|_| Material::Air).collect())
-                .collect();
             for d_i in 0..CHUNK_SIZE as i32 + 1 {
                 // The faces that need to be drawn
                 let mut culled = Vec::new(); // We can index this with culled[u_i * CHUNK_SIZE + v_i]
@@ -157,21 +262,31 @@ impl Mesher for Greedy {
                             idx[v] = v_i;
                             let b = get_block(grid, idx);
                             let l = last[u_i as usize][v_i as usize];
-                            culled.push(if l == Material::Air {
+                            culled.push(if (l == Material::Air || (!l.phase2() && phase2)) && b.phase2() == phase2 {
                                 b
-                            } else if b == Material::Air {
+                            } else if b == Material::Air || (b.phase2() && !phase2) {
                                 l
                             } else {
                                 Material::Air
                             });
-                            last[u_i as usize][v_i as usize] = b;
+                            last[u_i as usize][v_i as usize] = if b.phase2() == phase2 {
+                                b
+                            } else {
+                                Material::Air
+                            };
                         }
                     }
                 } else {
                     // The last edge
                     for u_i in 0..CHUNK_SIZE as i32 {
                         for v_i in 0..CHUNK_SIZE as i32 {
-                            culled.push(last[u_i as usize][v_i as usize]);
+                            let l = last[u_i as usize][v_i as usize];
+                            let b = end[u_i as usize][v_i as usize];
+                            culled.push(if b == Material::Air || (b.phase2() && !phase2) {
+                                l
+                            } else {
+                                Material::Air
+                            });
                         }
                     }
                 }
@@ -192,7 +307,9 @@ impl Mesher for Greedy {
 
                                     // We don't need to mesh this one anymore
                                     culled[u_i * CHUNK_SIZE as usize + v_i] = Material::Air;
-                                } else { break; }
+                                } else {
+                                    break;
+                                }
                             }
 
                             // Add to v
@@ -207,7 +324,9 @@ impl Mesher for Greedy {
                                     (left.0..right.0).for_each(|u_i| {
                                         culled[u_i * CHUNK_SIZE as usize + v_i] = Material::Air
                                     });
-                                } else { break; }
+                                } else {
+                                    break;
+                                }
                             }
 
                             // Generate vertices

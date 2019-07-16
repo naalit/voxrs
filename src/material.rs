@@ -59,7 +59,7 @@ impl Material {
            Material::Water => MatData {
                color: [0.2, 0.4, 0.9],
                roughness: 0.05,
-               trans: 1.0,
+               trans: 0.5,
                metal: 0.0,
                ior: 1.33,
                nothing: 0.0,
@@ -79,6 +79,13 @@ impl Material {
    pub fn pick_through(&self) -> bool {
        match self {
            Material::Air | Material::Water => true,
+           _ => false,
+       }
+   }
+
+   pub fn phase2(&self) -> bool {
+       match self {
+           Material::Water => true,
            _ => false,
        }
    }
