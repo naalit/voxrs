@@ -75,14 +75,6 @@ impl Material {
        }
    }
 
-   /// Whether we can place & break blocks through this substance
-   pub fn pick_through(&self) -> bool {
-       match self {
-           Material::Air | Material::Water => true,
-           _ => false,
-       }
-   }
-
    pub fn phase2(&self) -> bool {
        match self {
            Material::Water => true,

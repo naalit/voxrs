@@ -43,6 +43,19 @@ pub fn client_aux_thread(
             // Sync up with the client; we don't want to send more than one batch per frame
             continue;
         }
+
+        if indices.len() != 0 && counter >= 20 {
+            let c = world_to_chunk(player);
+            println!("Rechunking");
+            indices.sort_by_key(|x| ((chunk_to_world(*x) - player).norm() * 10.0) as i32);
+            while indices.len() != 0 && (indices.last().unwrap() - c).map(|x| x as f32).norm() > config.game_config.draw_chunks as f32 {
+                let r = indices.pop().unwrap();
+                chunk_map.remove(&r);
+            }
+
+            counter = 0;
+        }
+
         if indices.len() != 0 {
             let meshed: Vec<_> = indices
                 .iter()
@@ -79,17 +92,6 @@ pub fn client_aux_thread(
             indices.retain(|x| !r.contains(x));
             client.0.send(meshed).unwrap();
             counter += 1;
-
-            if counter >= 10 && indices.len() != 0 {
-                println!("Rechunking");
-                indices.sort_by_key(|x| ((chunk_to_world(*x) - player).norm() * 10.0) as i32);
-                while indices.len() != 0 && (chunk_to_world(*indices.last().unwrap()) - player).norm() > DRAW_DIST {
-                    let r = indices.pop().unwrap();
-                    chunk_map.remove(&r);
-                }
-
-                counter = 0;
-            }
         }
         if let Some(m) = server.recv() {
             match m {
@@ -103,12 +105,7 @@ pub fn client_aux_thread(
                     */
                     indices.extend(chunks.iter().map(|x|x.0));
                     chunk_map.extend(chunks.into_iter().map(|(x,y)| (x,Arc::new(RwLock::new(y))) ));
-                    indices.sort_by_key(|x| ((chunk_to_world(*x) - player).norm() * 10.0) as i32);
-                    while indices.len() != 0 && (chunk_to_world(*indices.last().unwrap()) - player).norm() > DRAW_DIST {
-                        let r = indices.pop().unwrap();
-                        chunk_map.remove(&r);
-                    }
-                    counter = 0;
+                    counter = 100; // Trigger a re-sort
                 }
                 _ => (),
             }

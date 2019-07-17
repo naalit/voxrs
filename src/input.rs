@@ -1,5 +1,3 @@
-use glium::glutin::*;
-use num_traits::FromPrimitive;
 use num_derive::FromPrimitive;
 
 #[derive(FromPrimitive)]

@@ -3,13 +3,10 @@ extern crate glium;
 extern crate glsl_include;
 pub extern crate nalgebra;
 extern crate num_traits;
-#[macro_use]
 extern crate num_derive;
 
 use glium::glutin;
-use glium::Surface;
-use glsl_include::Context as ShaderContext;
-use num_traits::identities::*;
+use std::sync::Arc;
 
 mod chunk;
 mod client;
@@ -28,7 +25,7 @@ use server::*;
 
 fn main() {
     // Wayland doesn't allow cursor grabbing
-    let mut events_loop: glutin::EventsLoop = glutin::os::unix::EventsLoopExt::new_x11().unwrap();
+    let events_loop: glutin::EventsLoop = glutin::os::unix::EventsLoopExt::new_x11().unwrap();
     let wb = glutin::WindowBuilder::new()
         .with_title("Vox.rs 2")
         .with_fullscreen(Some(events_loop.get_primary_monitor()));
@@ -37,6 +34,11 @@ fn main() {
     display.gl_window().window().grab_cursor(true).unwrap();
     display.gl_window().window().hide_cursor(true);
 
+    let config = GameConfig {
+        draw_chunks: 8,
+    };
+    let config = Arc::new(config);
+
     let resolution: (u32, u32) = display
         .gl_window()
         .window()
@@ -44,12 +46,12 @@ fn main() {
         .unwrap()
         .into();
 
-    let mut camera_pos = Vec3::new(4.0, 16.0, 4.0);
+    let camera_pos = Vec3::new(4.0, 16.0, 4.0);
 
     let (conn_client, conn_server) = Connection::local();
-    let mut client = Client::new(display, conn_client, camera_pos);
+    let client = Client::new(display, Arc::clone(&config), conn_client, camera_pos);
     std::thread::spawn(move || {
-        let mut server = Server::new();
+        let mut server = Server::new(config);
         server.join(conn_server, camera_pos);
         server.run();
     });

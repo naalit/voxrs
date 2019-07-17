@@ -1,3 +1,4 @@
+use std::sync::Arc;
 use crate::common::*;
 use crate::chunk::*;
 use std::collections::{HashSet, HashMap};
@@ -17,11 +18,12 @@ pub struct Server {
     players: Vec<Player>,
     orders: Vec<(Vec<IVec3>, Rc<Connection>)>,
     ch: (Sender<ChunkMessage>, Receiver<ChunkMessage>),
+    config: Arc<GameConfig>,
 }
 
 impl Server {
     /// Creates and starts a chunk thread, and creates a Server
-    pub fn new() -> Self {
+    pub fn new(config: Arc<GameConfig>) -> Self {
         let (to, from_them) = channel();
         let (to_them, from) = channel();
         thread::spawn(move ||{
@@ -34,6 +36,7 @@ impl Server {
             players: Vec::new(),
             orders: Vec::new(),
             ch: (to, from),
+            config,
         }
     }
 
@@ -127,13 +130,13 @@ impl Server {
 
         let mut to_load = Vec::new();
 
-        let draw_chunks = DRAW_DIST/CHUNK_SIZE;
+        let draw_chunks = self.config.draw_chunks as i32;
 
-        for x in -CHUNK_NUM_I.0..CHUNK_NUM_I.0 {
-            for y in -CHUNK_NUM_I.1..CHUNK_NUM_I.1 {
-                for z in -CHUNK_NUM_I.2..CHUNK_NUM_I.2 {
+        for x in -draw_chunks..draw_chunks {
+            for y in -draw_chunks..draw_chunks {
+                for z in -draw_chunks..draw_chunks {
                     let p = IVec3::new(x,y,z);
-                    if p.map(|x|x as f32).norm() <= draw_chunks {
+                    if p.map(|x|x as f32).norm() <= self.config.draw_chunks as f32 {
                         to_load.push(chunk_pos+p);
                     }
                 }
@@ -173,15 +176,15 @@ impl Server {
 
         println!("Loading chunks around {:?}", new);
 
-        let draw_chunks = DRAW_DIST/CHUNK_SIZE;
-
         let mut around_old = HashSet::new();
         let mut around_new = HashSet::new();
-        for x in -CHUNK_NUM_I.0..CHUNK_NUM_I.0 {
-            for y in -CHUNK_NUM_I.1..CHUNK_NUM_I.1 {
-                for z in -CHUNK_NUM_I.2..CHUNK_NUM_I.2 {
+        let draw_chunks = self.config.draw_chunks as i32;
+
+        for x in -draw_chunks..draw_chunks {
+            for y in -draw_chunks..draw_chunks {
+                for z in -draw_chunks..draw_chunks {
                     let p = IVec3::new(x,y,z);
-                    if p.map(|x|x as f32).norm() <= draw_chunks {
+                    if p.map(|x|x as f32).norm() <= self.config.draw_chunks as f32 {
                         around_old.insert(chunk_old+p);
                         around_new.insert(chunk_new+p);
                     }

@@ -12,12 +12,7 @@ use std::sync::mpsc::*;
 
 pub use crate::config::*;
 
-const RD: u32 = 16;
-pub const CHUNK_NUM: (u32, u32, u32) = (RD, 16, RD);
-pub const CHUNK_NUM_I: (i32, i32, i32) = (CHUNK_NUM.0 as i32 / 2, CHUNK_NUM.1 as i32 / 2, CHUNK_NUM.2 as i32 / 2);
-
 pub const CHUNK_SIZE: f32 = 16.0;
-pub const DRAW_DIST: f32 = CHUNK_SIZE * RD as f32 * 0.5;
 
 // Shorthands to match GLSL
 pub type IVec3 = Vector3<i32>;
@@ -25,17 +20,6 @@ pub type Vec3 = Vector3<f32>;
 
 pub fn radians(degrees: f32) -> f32 {
     std::f32::consts::PI / 180.0 * degrees
-}
-
-pub fn as_tuple<T: Scalar>(x: Vector3<T>) -> (T, T, T) {
-    (x.x, x.y, x.z)
-}
-pub fn as_vec<T: Scalar>(x: (T,T,T)) -> Vector3<T> {
-    Vector3::new(
-        x.0,
-        x.1,
-        x.2,
-    )
 }
 
 pub fn chunk_to_world(chunk: IVec3) -> Vec3 {

@@ -2,12 +2,10 @@ use crate::client_aux::*;
 use crate::common::*;
 use crate::input::*;
 use crate::mesh::*;
-use crate::num_traits::One;
 use enum_iterator::IntoEnumIterator;
 use glium::glutin::*;
 use glium::*;
 use glsl_include::Context as ShaderContext;
-use rayon::prelude::*;
 use std::collections::HashMap;
 use std::sync::mpsc::*;
 use std::sync::{Arc, RwLock};
@@ -225,11 +223,16 @@ pub struct Client {
 }
 
 impl Client {
-    pub fn new(display: Display, conn: Connection, player: Vec3) -> Self {
+    pub fn new(
+        display: Display,
+        game_config: Arc<GameConfig>,
+        conn: Connection,
+        player: Vec3,
+    ) -> Self {
         let config = Arc::new(ClientConfig {
             mesher: Box::new(Greedy),
             wireframe: false,
-            game_config: GameConfig {},
+            game_config,
         });
 
         let (to, from_them) = channel();
@@ -252,11 +255,9 @@ impl Client {
 
         Client {
             camera: Camera::new(player.into()),
-            chunks: HashMap::with_capacity((CHUNK_NUM.0 * CHUNK_NUM.1 * CHUNK_NUM.2 / 2) as usize),
-            meshes: HashMap::with_capacity((CHUNK_NUM.0 * CHUNK_NUM.1 * CHUNK_NUM.2 / 2) as usize),
-            colliders: HashMap::with_capacity(
-                (CHUNK_NUM.0 * CHUNK_NUM.1 * CHUNK_NUM.2 / 2) as usize,
-            ),
+            chunks: HashMap::with_capacity(config.game_config.draw_chunks.pow(3) / 2),
+            meshes: HashMap::with_capacity(config.game_config.draw_chunks.pow(3) / 2),
+            colliders: HashMap::with_capacity(config.game_config.draw_chunks.pow(3) / 2),
             display,
             aux: (to, from),
             world,
@@ -377,7 +378,7 @@ impl Client {
                         button: 1,
                         state: glutin::ElementState::Pressed,
                     } => {
-                        if let Some(p) = self.trace(self.pos(), self.camera.dir, 32) {
+                        if let Some(p) = self.trace(self.pos(), self.camera.dir, 16.0) {
                             self.set_block(p.cell, Material::Air);
                         }
                     }
@@ -535,9 +536,9 @@ impl Client {
     /// Unloads chunks that are too far away
     fn prune_chunks(&mut self) {
         for &i in self.chunks.clone().keys() {
-            let p = chunk_to_world(i);
-            let d = (p - self.pos()).norm();
-            if d > DRAW_DIST {
+            let p = world_to_chunk(self.pos());
+            let d = (p - i).map(|x| x as f32).norm();
+            if d > self.config.game_config.draw_chunks as f32 {
                 self.unload(i);
             }
         }
@@ -550,28 +551,9 @@ pub struct Intersection {
     pub t: f32,
     pub normal: Vec3,
 }
-/// Computes the analytic intersection of a ray with an axis-aligned cube with side length 1
-/// We actually only compute tmin, and we assume that it is a valid intersection (since this is only called by voxel traversal)
-fn isect_cube(cell: IVec3, ro: Vec3, rd: Vec3) -> Intersection {
-    let mn = cell.map(|x| x as f32) - Vec3::repeat(0.5);
-    let mx = mn + Vec3::repeat(1.0);
-    let t1 = (mn - ro).component_div(&rd);
-    let t2 = (mx - ro).component_div(&rd);
-    let t = t1.zip_map(&t2, |x, y| x.min(y)).max(); // tmin
-    let pos = ro + rd * t;
-    let normal = pos - cell.map(|x| x as f32);
-    let m = normal.max();
-    let normal = normal.map(|x| if x == m { 1.0 } else { 0.0 });
-    Intersection {
-        pos,
-        cell,
-        t,
-        normal,
-    }
-}
 
 impl Client {
-    pub fn trace(&self, ro: Vec3, rd: Vec3, max_iter: u32) -> Option<Intersection> {
+    pub fn trace(&self, ro: Vec3, rd: Vec3, max_t: f32) -> Option<Intersection> {
         let ray = nc::query::Ray::new(ro.into(), rd);
 
         let g = nc::world::CollisionGroups::default();
@@ -583,17 +565,16 @@ impl Client {
                 .unwrap_or(std::cmp::Ordering::Equal)
         })?;
         let pos = ro + first.1.toi * rd;
-        // let c = world_to_chunk(pos);
 
-        println!("t = {}", first.1.toi);
-        println!("p = {:?}", pos);
-        println!("n = {:?}", first.1.normal);
-
-        Some(Intersection {
-            pos,
-            cell: (pos - 0.1 * first.1.normal).map(|x| x as i32 - if x < 0.0 { 1 } else { 0 }),
-            t: first.1.toi,
-            normal: first.1.normal,
-        })
+        if first.1.toi <= max_t {
+            Some(Intersection {
+                pos,
+                cell: (pos - 0.1 * first.1.normal).map(|x| x as i32 - if x < 0.0 { 1 } else { 0 }),
+                t: first.1.toi,
+                normal: first.1.normal,
+            })
+        } else {
+            None
+        }
     }
 }

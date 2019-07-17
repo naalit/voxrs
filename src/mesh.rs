@@ -1,5 +1,4 @@
 use crate::common::*;
-use crate::num_traits::One;
 use glium::*;
 use nalgebra::{Translation, UnitQuaternion};
 use std::rc::Rc;
@@ -52,7 +51,7 @@ impl Mesh {
         } else {
             Some(Rc::new(VertexBuffer::new(display, &verts).unwrap()))
         };
-        let vbuff_p2 = if empty {
+        let vbuff_p2 = if empty_p2 {
             None
         } else {
             Some(Rc::new(VertexBuffer::new(display, &verts_p2).unwrap()))
@@ -221,7 +220,7 @@ impl Mesher for Greedy {
                                 idx[u] = u_i;
                                 idx[v] = v_i;
                                 let b = get_block(f, idx);
-                                if b.phase2() == phase2 {
+                                if !b.phase2() || phase2 {
                                     b
                                 } else {
                                     Material::Air

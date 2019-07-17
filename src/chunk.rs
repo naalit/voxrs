@@ -1,5 +1,3 @@
-use glium::*;
-use std::collections::HashMap;
 use crate::common::*;
 use crate::terrain::*;
 use std::sync::mpsc::*;
