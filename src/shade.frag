@@ -3,8 +3,10 @@
 // The shading pass after the G-Buffer is filled
 
 out vec4 frag_color;
+in vec2 uv;
 
 uniform vec3 camera_pos;
+uniform mat4 proj_mat;
 uniform sampler2D gbuff;
 
 struct MatData {
@@ -48,6 +50,8 @@ vec3 decode_normal(uint n) {
         );
 }
 
+#include <sky.glsl>
+
 void main() {
     vec4 g = texelFetch(gbuff, ivec2(gl_FragCoord.xy), 0);
     vec3 frag_pos = g.xyz;
@@ -56,28 +60,35 @@ void main() {
     vec3 normal = decode_normal(w);
 
     vec3 col = vec3(0);
-    vec3 sun_dir = normalize(vec3(0.2, 0.9, 0.3));
-    float NoL = dot(normal, sun_dir);
-    // Roughly IQ's three-light model for fake GI
-    vec3 sun_color = vec3(1.3, 1.2, 1.2);
-    vec3 sky_color = vec3(0.9, 0.9, 1.1);
-    col += max(0.0, NoL ) * sun_color;
-    col += max(0.0, 0.5 * dot(abs(normal), normalize(vec3(0.5, 0.2, 0.5))) ) * sky_color;
-    col += max(0.01, -0.1 * NoL ) * pow(sun_color, vec3(2.2));
-    MatData mat = materials[mat_index];
-    col *= pow(mat.color, vec3(2.2)); // sRGB
-    col = applyFog(col, length(frag_pos - camera_pos), camera_pos, normalize(frag_pos - camera_pos), sun_dir);
-    // col = pow(col, vec3(2.2)); // sRGB
-    #ifdef WIREFRAME
-    vec3 uvw = fract(frag_pos);
-    float t = max(uvw.x, max(uvw.y, uvw.z));
-    uvw += abs(normal)*0.5;
-    float q = min(uvw.x, min(uvw.y, uvw.z));
-    if (t < 0.99 && q > 0.01)
-        discard;
-    #ifndef WF_LIGHTING
-    col = vec3(1.0);
-    #endif
-    #endif
-    frag_color = vec4(col, 1.0 - mat.trans);
+    float a = 1.0;
+    if (mat_index == 0u) {
+        vec4 cd = inverse(proj_mat) * vec4(uv,1,1);
+        col = sky(camera_pos, normalize(cd.xyz/cd.w - camera_pos));
+    } else {
+        vec3 sun_dir = normalize(vec3(0.2, 0.9, 0.3));
+        float NoL = dot(normal, sun_dir);
+        // Roughly IQ's three-light model for fake GI
+        vec3 sun_color = vec3(1.3, 1.2, 1.2);
+        vec3 sky_color = vec3(0.9, 0.9, 1.1);
+        col += max(0.0, NoL ) * sun_color;
+        col += max(0.0, 0.5 * dot(abs(normal), normalize(vec3(0.5, 0.2, 0.5))) ) * sky_color;
+        col += max(0.01, -0.1 * NoL ) * pow(sun_color, vec3(2.2));
+        MatData mat = materials[mat_index];
+        col *= pow(mat.color, vec3(2.2)); // sRGB
+        col = applyFog(col, length(frag_pos - camera_pos), camera_pos, normalize(frag_pos - camera_pos), sun_dir);
+        a = 1.0 - mat.trans;
+        // col = pow(col, vec3(2.2)); // sRGB
+        #ifdef WIREFRAME
+        vec3 uvw = fract(frag_pos);
+        float t = max(uvw.x, max(uvw.y, uvw.z));
+        uvw += abs(normal)*0.5;
+        float q = min(uvw.x, min(uvw.y, uvw.z));
+        if (t < 0.99 && q > 0.01)
+            discard;
+        #ifndef WF_LIGHTING
+        col = vec3(1.0);
+        #endif
+        #endif
+    }
+    frag_color = vec4(col, a);
 }

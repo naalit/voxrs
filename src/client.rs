@@ -150,7 +150,7 @@ impl<'a> DrawStuff<'a> {
         let gbuff_program = glium::Program::from_source(display, &vshader, &fshader, None).unwrap();
 
         let vshader = shader("blank.vert".to_string(), &[]);
-        let fshader = shader("shade.frag".to_string(), &[]);
+        let fshader = shader("shade.frag".to_string(), &["sky.glsl".to_string()]);
         let shade_program = glium::Program::from_source(display, &vshader, &fshader, None).unwrap();
 
         let quad = [
@@ -312,6 +312,7 @@ impl Client {
                 &uniform! {
                     mat_buf: &draw_stuff.mat_buf,
                     camera_pos: <[f32; 3]>::from(self.pos().into()),
+                    proj_mat: proj_mat,
                     gbuff: &draw_stuff.gbuff,
                 },
                 &Default::default(),
@@ -341,6 +342,7 @@ impl Client {
                 &uniform! {
                     mat_buf: &draw_stuff.mat_buf,
                     camera_pos: <[f32; 3]>::from(self.pos().into()),
+                    proj_mat: proj_mat,
                     gbuff: &draw_stuff.gbuff,
                 },
                 &glium::draw_parameters::DrawParameters {
@@ -443,9 +445,18 @@ impl Client {
         chunk_rc.write().unwrap()[in_chunk.x][in_chunk.y][in_chunk.z] = new;
 
         self.remesh(chunk);
-        neighbors(chunk).into_iter().for_each(|x| {
-            self.remesh(x);
-        });
+        for d in 0..3 {
+            if in_chunk[d] == 0 {
+                let mut i = chunk;
+                i[d] -= 1;
+                self.remesh(i);
+            }
+            if in_chunk[d] == 15 {
+                let mut i = chunk;
+                i[d] += 1;
+                self.remesh(i);
+            }
+        }
     }
 
     fn remesh(&mut self, chunk: IVec3) -> Option<()> {
@@ -460,6 +471,10 @@ impl Client {
             return None;
         }
 
+        if let Some(c) = self.colliders.remove(&chunk) {
+            self.world.remove_colliders(&[c]);
+        }
+
         let verts = self
             .config
             .mesher
@@ -468,12 +483,22 @@ impl Client {
             .config
             .mesher
             .mesh(&chunk_rc.read().unwrap(), neighbors, true);
-        let v_physics: Vec<_> = verts.iter().map(|x| na::Point3::from(x.pos)).collect();
-        let i_physics: Vec<_> = (0..v_physics.len() / 3)
-            .map(|x| na::Point3::new(x * 3, x * 3 + 1, x * 3 + 2))
-            .collect();
-        let chunk_shape =
-            nc::shape::ShapeHandle::new(nc::shape::TriMesh::new(v_physics, i_physics, None));
+
+        if verts.len() != 0 {
+            let v_physics: Vec<_> = verts.iter().map(|x| na::Point3::from(x.pos)).collect();
+            let i_physics: Vec<_> = (0..v_physics.len() / 3)
+                .map(|x| na::Point3::new(x * 3, x * 3 + 1, x * 3 + 2))
+                .collect();
+            let chunk_shape =
+                nc::shape::ShapeHandle::new(nc::shape::TriMesh::new(v_physics, i_physics, None));
+
+
+            let chunk_collider = np::object::ColliderDesc::new(chunk_shape)
+                .translation(chunk.map(|x| x as f32) * CHUNK_SIZE)
+                .build_with_parent(np::object::BodyPartHandle::ground(), &mut self.world)
+                .unwrap();
+            self.colliders.insert(chunk, chunk_collider.handle());
+        }
 
         let mesh = Mesh::new(
             &self.display,
@@ -483,14 +508,6 @@ impl Client {
             Vec3::new(0.0, 0.0, 0.0),
         );
         self.meshes.insert(chunk, mesh);
-        self.world
-            .remove_colliders(&[self.colliders.remove(&chunk)?]);
-
-        let chunk_collider = np::object::ColliderDesc::new(chunk_shape)
-            .translation(chunk.map(|x| x as f32) * CHUNK_SIZE)
-            .build_with_parent(np::object::BodyPartHandle::ground(), &mut self.world)
-            .unwrap();
-        self.colliders.insert(chunk, chunk_collider.handle());
 
         Some(())
     }
