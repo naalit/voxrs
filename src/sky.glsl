@@ -1,5 +1,3 @@
-uniform vec3 sun_dir;
-
 float isect(vec3 ro, vec3 rd, vec3 p, float size) {
     vec3 mn = p - size;
     vec3 mx = p + size;
@@ -26,5 +24,5 @@ vec3 sky(vec3 ro, vec3 rd)
     vec3 col = vec3(sun) * pow(vec3(0.7031,0.4687,0.1055), vec3(1.0))
 		+ 0.8 * vec3(0.3984,0.5117,0.7305) * ((0.5 + 1.0 * pow(sun_dir.y,0.4)) * (1.5-dot(vec3(0,1,0), rd)));
 
-    return pow(col, vec3(2.2));
+    return col;
 }
