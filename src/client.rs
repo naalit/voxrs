@@ -217,6 +217,7 @@ pub struct Client {
     colliders: HashMap<IVec3, np::object::ColliderHandle>,
     display: Display,
     aux: (Sender<Message>, Receiver<ClientMessage>),
+    time: f64,
     world: np::world::World<f32>,
     player_handle: np::object::BodyHandle,
     config: Arc<ClientConfig>,
@@ -261,6 +262,7 @@ impl Client {
             colliders: HashMap::with_capacity(config.game_config.draw_chunks.pow(3) / 2),
             display,
             aux: (to, from),
+            time: 0.0,
             world,
             player_handle,
             config,
@@ -289,6 +291,9 @@ impl Client {
 
         let proj_mat: [[f32; 4]; 4] = self.camera.mat(resolution);
 
+        let sun_speed = 0.1;
+        let sun_dir = Vec3::new((self.time * sun_speed).sin() as f32, (self.time * sun_speed).cos() as f32, 0.0);
+
         // Draw chunks onto the G-Buffer
         gbuff_fb.clear_color_and_depth((0.0, 0.0, 0.0, 0.0), 1.0);
         for (_loc, mesh) in self.meshes.iter() {
@@ -314,6 +319,7 @@ impl Client {
                     mat_buf: &draw_stuff.mat_buf,
                     camera_pos: <[f32; 3]>::from(self.pos().into()),
                     proj_mat: proj_mat,
+                    sun_dir: <[f32; 3]>::from(sun_dir.into()),
                     gbuff: &draw_stuff.gbuff,
                 },
                 &Default::default(),
@@ -344,6 +350,7 @@ impl Client {
                     mat_buf: &draw_stuff.mat_buf,
                     camera_pos: <[f32; 3]>::from(self.pos().into()),
                     proj_mat: proj_mat,
+                    sun_dir: <[f32; 3]>::from(sun_dir.into()),
                     gbuff: &draw_stuff.gbuff,
                 },
                 &glium::draw_parameters::DrawParameters {
@@ -423,6 +430,8 @@ impl Client {
         let mut open = true;
         while open {
             let delta = timer.elapsed_ms() as f64 / 1000.0;
+            self.time += delta;
+
             // println!("{:.1} FPS", 1.0 / delta);
             timer.restart();
 
