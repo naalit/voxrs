@@ -35,7 +35,8 @@ fn main() {
     display.gl_window().window().hide_cursor(true);
 
     let config = GameConfig {
-        draw_chunks: 8,
+        draw_chunks: 16,
+        batch_size: 256,
     };
     let config = Arc::new(config);
 

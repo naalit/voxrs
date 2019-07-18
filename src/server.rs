@@ -9,6 +9,7 @@ use std::rc::Rc;
 struct Player {
     pos: Vec3,
     conn: Rc<Connection>,
+    id: usize,
     //to_send: Vec<IVec3>,
 }
 
@@ -16,7 +17,7 @@ pub struct Server {
     chunks: HashMap<IVec3, Chunk>,
     refs: HashMap<IVec3, usize>,
     players: Vec<Player>,
-    orders: Vec<(Vec<IVec3>, Rc<Connection>)>,
+    orders: HashMap<IVec3, Vec<(usize, Rc<Connection>)>>,
     ch: (Sender<ChunkMessage>, Receiver<ChunkMessage>),
     config: Arc<GameConfig>,
 }
@@ -26,15 +27,16 @@ impl Server {
     pub fn new(config: Arc<GameConfig>) -> Self {
         let (to, from_them) = channel();
         let (to_them, from) = channel();
+        let c = Arc::clone(&config);
         thread::spawn(move ||{
-            ChunkThread::new(to_them, from_them).run()
+            ChunkThread::new(c, to_them, from_them).run()
         });
 
         Server {
             chunks: HashMap::new(),
             refs: HashMap::new(),
             players: Vec::new(),
-            orders: Vec::new(),
+            orders: HashMap::new(),
             ch: (to, from),
             config,
         }
@@ -45,11 +47,12 @@ impl Server {
         let new_player = Player {
             pos,
             conn: Rc::new(conn),
+            id: self.players.len(),
         };
         let (wait, load) = self.load_chunks_around(pos);
         //p.to_send.append(&mut wait);
-        if wait.len() > 0 {
-            self.orders.push((wait, Rc::clone(&new_player.conn)));
+        for i in wait {
+            self.orders.entry(i).or_insert_with(|| Vec::new()).push((new_player.id, Rc::clone(&new_player.conn)));
         }
         if load.len() > 0 {
             new_player.conn.send(Message::Chunks(load)).unwrap();
@@ -79,8 +82,8 @@ impl Server {
                 }
                 let (wait, load) = self.load_chunk_diff(p.pos, np);
                 //p.to_send.append(&mut wait);
-                if wait.len() > 0 {
-                    self.orders.push((wait, Rc::clone(&p.conn)));
+                for i in wait {
+                    self.orders.entry(i).or_insert_with(|| Vec::new()).push((p.id, Rc::clone(&p.conn)));
                 }
                 if load.len() > 0 {
                     p.conn.send(Message::Chunks(load)).unwrap();
@@ -94,25 +97,20 @@ impl Server {
                     ChunkMessage::Chunks(x) => {
                         let locs: Vec<IVec3> = x.iter().map(|y| y.0).collect();
 
-                        let mut to_remove = 12345678;
-                        for (i, (order, conn)) in self.orders.iter().enumerate() {
-                            if order == &locs {
-                                /*for l in locs.iter() {
-                                    match self.refs.get_mut(&as_tuple(*l)) {
-                                        Some(x) => *x += 1, // This is indeed possible but ugly; see Todo below
-                                        None    => { self.refs.insert(as_tuple(*l),1); },
-                                    }
-                                }*/ // Commented out because we now do that when we request chunks to be loaded
-                                conn.send(Message::Chunks(x.clone())).unwrap();
-                                to_remove = i; // We don't need this order anymore
-                                break;
+                        let mut batches = HashMap::new();
+                        for (i, c) in &x {
+                            if let Some(v) = self.orders.remove(&i) {
+                                for (id, conn) in v {
+                                    batches.entry(id).or_insert_with(|| (conn, Vec::new())).1.push((*i, c.clone()));
+                                }
                             }
                         }
+                        for (_, (conn, v)) in batches {
+                            conn.send(Message::Chunks(v));
+                        }
+
                         for (loc, chunk) in x.into_iter() {
                             self.chunks.insert(loc, chunk); // There's a very small chance we're replacing a chunk; see Todo below
-                        }
-                        if to_remove != 12345678 {
-                            self.orders.remove(to_remove);
                         }
                     },
                     _ => panic!("Chunk thread sent {:?}", m),
@@ -143,6 +141,8 @@ impl Server {
             }
         }
 
+        to_load.sort_by_cached_key(|a| ((a.map(|x|x as f32)).norm() * 10.0) as i32);
+
         let mut to_send = Vec::new();
         let mut to_pass = Vec::new();
         for p in to_load {
@@ -156,8 +156,9 @@ impl Server {
             }
         }
 
-        // TODO: What if the chunks we need are already being loaded, but they're not done yet so they're not in chunks?
-        //  In that case, we'll need to change how we figure out who to send new chunks to as well
+        // If it's already being loaded, don't tell the chunk thread to load it again.
+        // The calling function will add this player to `orders` too, so we don't need to bother here
+        to_send.retain(|x| !self.orders.contains_key(&x));
 
         self.ch.0.send(ChunkMessage::LoadChunks(to_send.clone())).unwrap();
         (to_send, to_pass)
@@ -227,8 +228,11 @@ impl Server {
             }
         }
 
-        // TODO: What if the chunks we need are already being loaded, but they're not done yet so they're not in chunks?
-        //  In that case, we'll need to change how we figure out who to send new chunks to as well
+        // If it's already being loaded, don't tell the chunk thread to load it again.
+        // The calling function will add this player to `orders` too, so we don't need to bother here
+        to_send.retain(|x| !self.orders.contains_key(&x));
+
+        to_send.sort_by_cached_key(|a| ((a - chunk_new).map(|x|x as f32).norm() * 10.0) as i32);
 
         self.ch.0.send(ChunkMessage::LoadChunks(to_send.clone())).unwrap();
         (to_send, to_pass)

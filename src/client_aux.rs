@@ -59,7 +59,7 @@ pub fn client_aux_thread(
         if indices.len() != 0 {
             let meshed: Vec<_> = indices
                 .iter()
-                .take(8.min(indices.len()))
+                .take(config.batch_size.min(indices.len()))
                 .cloned()
                 .map(|loc| (loc,chunk_map.get(&loc).unwrap()))
                 .filter_map(|(loc, chunk)| {

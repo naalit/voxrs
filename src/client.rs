@@ -232,6 +232,7 @@ impl Client {
         let config = Arc::new(ClientConfig {
             mesher: Box::new(Greedy),
             wireframe: false,
+            batch_size: 16,
             game_config,
         });
 
