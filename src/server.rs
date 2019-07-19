@@ -1,6 +1,6 @@
 use std::sync::Arc;
 use crate::common::*;
-use crate::chunk::*;
+use crate::chunk_thread::*;
 use std::collections::{HashSet, HashMap};
 use std::sync::mpsc::*;
 use std::thread;

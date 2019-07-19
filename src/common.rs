@@ -2,6 +2,7 @@
 /// In order to not confuse different spaces, we always use the same types for coordinates:
 /// - `Vec3` is a position in world-space, in increments of 1 meter
 /// - `IVec3` is a chunk location in world-space, in increments of 1 chunk
+/// - `UVec3` is a block within a chunk
 
 pub use nalgebra as na;
 pub use nphysics3d as np;
@@ -16,6 +17,7 @@ pub const CHUNK_SIZE: f32 = 16.0;
 
 // Shorthands to match GLSL
 pub type IVec3 = Vector3<i32>;
+pub type UVec3 = Vector3<usize>;
 pub type Vec3 = Vector3<f32>;
 
 pub fn radians(degrees: f32) -> f32 {
@@ -36,7 +38,7 @@ pub fn in_chunk(world: Vec3) -> Vector3<usize> {
 //pub type Material = u16;
 pub use crate::material::*;
 //pub const AIR: Material = 0;
-pub type Chunk = Vec<Vec<Vec<Material>>>;
+pub use crate::chunk::ChunkTrait;
 
 pub enum Connection {
     Local(Sender<Message>, Receiver<Message>),

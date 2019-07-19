@@ -1,59 +1,130 @@
 use crate::common::*;
-use crate::terrain::*;
-use std::sync::mpsc::*;
-use std::sync::Arc;
 
-pub struct ChunkThread {
-    pub gen: Gen,
-    ch: (Sender<ChunkMessage>, Receiver<ChunkMessage>),
-    config: Arc<GameConfig>,
+pub trait ChunkTrait: std::fmt::Debug + Clone {
+    fn empty() -> Self;
+    fn full(f: &Fn(UVec3) -> Material) -> Self;
+
+    fn block(&self, idx: UVec3) -> Material;
+    fn set_block(&mut self, idx: UVec3, new: Material);
+
+    /// Returns the visible faces, indexed by faces[axis_i][u_i][v_i]
+    ///     where u = (axis + 1) % 3; and v = (axis + 2) % 3;
+    fn cull_faces(&self, axis: usize, neighbors: (&Self, &Self), phase2: bool) -> Vec<Vec<Vec<Material>>>;
 }
 
-impl ChunkThread {
-    pub fn new(config: Arc<GameConfig>, to: Sender<ChunkMessage>, from: Receiver<ChunkMessage>) -> Self {
-        ChunkThread {
-            gen: Gen::new(),
-            ch: (to, from),
-            config,
+#[derive(Debug, Clone)]
+pub struct FlatChunk {
+    /// Indexed by `blocks[y * CHUNK_SIZE * CHUNK_SIZE + x * CHUNK_SIZE + z]` for cache friendliness
+    blocks: Vec<Material>,
+}
+
+const CHUNK_U: usize = CHUNK_SIZE as usize;
+
+impl ChunkTrait for FlatChunk {
+    fn empty() -> Self {
+        FlatChunk {
+            blocks: Vec::new(),
+        }
+    }
+    fn full(f: &Fn(UVec3) -> Material) -> Self {
+        let blocks = (0..CHUNK_U)
+            .flat_map(|y| (0..CHUNK_U).map(move |x| (y,x)))
+            .flat_map(|(y,x)| (0..CHUNK_U).map(move |z| f(UVec3::new(x,y,z))))
+            .collect();
+        FlatChunk {
+            blocks,
         }
     }
 
-    pub fn run(self) {
-        let mut to_load = Vec::new();
+    fn block(&self, idx: UVec3) -> Material {
+        self.blocks[idx.y * CHUNK_U * CHUNK_U + idx.x * CHUNK_U + idx.z]
+    }
+    fn set_block(&mut self, idx: UVec3, new: Material) {
+        self.blocks[idx.y * CHUNK_U * CHUNK_U + idx.x * CHUNK_U + idx.z] = new;
+    }
 
-        loop {
-            if to_load.len() != 0 {
-                let ret: Vec<_> = to_load.drain(0..self.config.batch_size.min(to_load.len())).map(|x|
-                    (x,self.gen.gen(x))
-                ).collect();
+    fn cull_faces(&self, axis: usize, neighbors: (&Self, &Self), phase2: bool) -> Vec<Vec<Vec<Material>>> {
+        let u = (axis + 1) % 3;
+        let v = (axis + 2) % 3;
 
-                println!("Loaded {} chunks", ret.len());
+        let mut last: Vec<Vec<Material>> = {
+            let f = neighbors.0;
+            (0..CHUNK_U)
+                .map(|u_i| {
+                    (0..CHUNK_U)
+                        .map(|v_i| {
+                            let mut idx = UVec3::zeros();
+                            idx[axis] = CHUNK_U - 1;
+                            idx[u] = u_i;
+                            idx[v] = v_i;
+                            let b = f.block(idx);
+                            if !b.phase2() || phase2 {
+                                b
+                            } else {
+                                Material::Air
+                            }
+                        })
+                        .collect()
+                })
+                .collect()
+        };
 
-                self.ch.0.send(ChunkMessage::Chunks(ret)).unwrap();
+        let end: Vec<Vec<Material>> = {
+            let b = neighbors.0;
+            (0..CHUNK_U)
+                .map(|u_i| {
+                    (0..CHUNK_U)
+                        .map(|v_i| {
+                            let mut idx = UVec3::zeros();
+                            idx[axis] = 0;
+                            idx[u] = u_i;
+                            idx[v] = v_i;
+                            b.block(idx)
+                        })
+                        .collect()
+                })
+                .collect()
+        };
 
-                match self.ch.1.try_recv() {
-                    Ok(ChunkMessage::LoadChunks(mut chunks)) => {
-                        to_load.append(&mut chunks);
-                    },
-                    Ok(ChunkMessage::UnloadChunk(_,_)) => {
-                        // TODO save chunk
-                    },
-                    Err(TryRecvError::Disconnected) => break,
-                    _ => {},
-                }
-            } else {
-                // Wait for more chunks to load
-                match self.ch.1.recv() {
-                    Ok(ChunkMessage::LoadChunks(mut chunks)) => {
-                        to_load.append(&mut chunks);
-                    },
-                    Ok(ChunkMessage::UnloadChunk(_,_)) => {
-                        // TODO save chunk
-                    },
-                    _ => break,
+        let mut culled = Vec::new();
+        for d_i in 0..CHUNK_U + 1 {
+            culled.push(Vec::new());
+            for u_i in 0..CHUNK_U {
+                culled[d_i].push(Vec::new());
+                for v_i in 0..CHUNK_U {
+                    if d_i < CHUNK_U {
+                        let mut idx = UVec3::zeros();
+                        idx[axis] = d_i;
+                        idx[u] = u_i;
+                        idx[v] = v_i;
+                        let b = self.block(idx);
+                        let l = last[u_i][v_i];
+                        culled[d_i][u_i].push(if (l == Material::Air || (!l.phase2() && phase2)) && b.phase2() == phase2 {
+                            b
+                        } else if b == Material::Air || (b.phase2() && !phase2) {
+                            l
+                        } else {
+                            Material::Air
+                        });
+                        last[u_i as usize][v_i as usize] = if b.phase2() == phase2 {
+                            b
+                        } else {
+                            Material::Air
+                        };
+                    } else {
+                        // The last edge
+                        let l = last[u_i][v_i];
+                        let b = end[u_i][v_i];
+                        culled[d_i][u_i].push(if b == Material::Air || (b.phase2() && !phase2) {
+                            l
+                        } else {
+                            Material::Air
+                        });
+                    }
                 }
             }
-
         }
+
+        culled
     }
 }

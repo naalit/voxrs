@@ -9,6 +9,7 @@ use glium::glutin;
 use std::sync::Arc;
 
 mod chunk;
+mod chunk_thread;
 mod client;
 mod client_aux;
 mod config;

@@ -291,8 +291,8 @@ impl Client {
 
         let proj_mat: [[f32; 4]; 4] = self.camera.mat(resolution);
 
-        let sun_speed = 0.1;
-        let sun_dir = Vec3::new((self.time * sun_speed).sin() as f32, (self.time * sun_speed).cos() as f32, 0.0);
+        let sun_speed = 0.01;
+        let sun_dir = Vec3::new((self.time * sun_speed).sin() as f32, (self.time * sun_speed).cos() as f32, 0.0).normalize();
 
         // Draw chunks onto the G-Buffer
         gbuff_fb.clear_color_and_depth((0.0, 0.0, 0.0, 0.0), 1.0);
@@ -452,7 +452,7 @@ impl Client {
         let in_chunk = in_chunk(loc.map(|x| x as f32));
 
         let chunk_rc = self.chunks.get(&chunk).unwrap();
-        chunk_rc.write().unwrap()[in_chunk.x][in_chunk.y][in_chunk.z] = new;
+        chunk_rc.write().unwrap().set_block(in_chunk, new);
 
         self.remesh(chunk);
         for d in 0..3 {

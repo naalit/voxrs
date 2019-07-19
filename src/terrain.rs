@@ -31,33 +31,24 @@ impl Gen {
             })
             .collect::<Vec<_>>();
 
-        let grid: Vec<Vec<Vec<Material>>> = (0..CHUNK_SIZE as usize)
-            .map(move |x| {
-                (0..CHUNK_SIZE as usize)
-                    .map(move |y| (x, y))
-                    .map(|(x, y)| {
-                        (0..CHUNK_SIZE as usize)
-                            .map(|z| {
-                                let height = chunk_heightmap[x][z]; //3.0 + 4.0 * self.noise.get([(start.x as f64 + x as f64) * 0.01, (start.z as f64 + z as f64) * 0.01]) as f32;
-                                if (y as f32 + start.y) == height.ceil() {
-                                    Material::Grass
-                                } else if (y as f32 + start.y) < height
-                                    && (y as f32 + start.y) > height - 3.0
-                                {
-                                    Material::Dirt
-                                } else if (y as f32 + start.y) < height {
-                                    Material::Stone
-                                } else if (y as f32 + start.y) < 0.0 {
-                                    Material::Water
-                                } else {
-                                    Material::Air
-                                }
-                            })
-                            .collect()
-                    })
-                    .collect()
-            })
-            .collect();
+        let grid = Chunk::full(&mut |p| {
+            let height = chunk_heightmap[p.x][p.z]; //3.0 + 4.0 * self.noise.get([(start.x as f64 + x as f64) * 0.01, (start.z as f64 + z as f64) * 0.01]) as f32;
+            let y = p.y as f32 + start.y;
+            if y == height.ceil() {
+                Material::Grass
+            } else if y < height
+                && y > height - 3.0
+            {
+                Material::Dirt
+            } else if y < height {
+                Material::Stone
+            } else if y < 0.0 {
+                Material::Water
+            } else {
+                Material::Air
+            }
+        });
+
         grid
     }
 }
