@@ -291,7 +291,7 @@ impl Client {
 
         let proj_mat: [[f32; 4]; 4] = self.camera.mat(resolution);
 
-        let sun_speed = 0.01;
+        let sun_speed = 0.05;
         let sun_dir = Vec3::new((self.time * sun_speed).sin() as f32, (self.time * sun_speed).cos() as f32, 0.0).normalize();
 
         // Draw chunks onto the G-Buffer

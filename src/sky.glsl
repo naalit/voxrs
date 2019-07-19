@@ -19,10 +19,11 @@ vec3 sky(vec3 ro, vec3 rd)
     vec3 sun_dir = vec3(sin(iTime * sun_speed), cos(iTime * sun_speed), 0.0);*/
 
     float sun = isect(ro, rd, ro + sun_dir * 1000.0, 40.0);
-	sun += 0.3 * isect(ro, rd, ro + sun_dir * 1000.0, 80.0);
+    sun = sun * length(sun) * 10.0;
+	sun += 0.5 * isect(ro, rd, ro + sun_dir * 1000.0, 80.0);
 
-    vec3 col = vec3(sun) * pow(vec3(0.7031,0.4687,0.1055), vec3(1.0))
-		+ 0.8 * vec3(0.3984,0.5117,0.7305) * ((0.5 + 1.0 * pow(sun_dir.y,0.4)) * (1.5-dot(vec3(0,1,0), rd)));
+    vec3 col = vec3(sun) * pow(vec3(0.7031,0.4687,0.1055), vec3(1.2) * (2.0 - sun_dir.y))
+		+ 0.8 * vec3(0.3984,0.5117,0.7305) * ((0.5 + 1.0 * pow(sun_dir.y,0.4)) * (1.2-0.7*dot(vec3(0,1,0), rd)));
 
     return col;
 }

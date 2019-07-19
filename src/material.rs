@@ -34,7 +34,7 @@ impl Material {
            },
            Material::Grass => MatData {
                color: [0.4, 0.7, 0.5],
-               roughness: 0.8,
+               roughness: 0.6,
                trans: 0.0,
                metal: 0.0,
                ior: 1.45,
@@ -57,8 +57,8 @@ impl Material {
                nothing: 0.0,
            },
            Material::Water => MatData {
-               color: [0.2, 0.4, 0.9],
-               roughness: 0.05,
+               color: [0.3, 0.4, 0.5],
+               roughness: 0.01,
                trans: 0.5,
                metal: 0.0,
                ior: 1.33,

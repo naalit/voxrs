@@ -70,7 +70,7 @@ impl ChunkTrait for FlatChunk {
         };
 
         let end: Vec<Vec<Material>> = {
-            let b = neighbors.0;
+            let b = neighbors.1;
             (0..CHUNK_U)
                 .map(|u_i| {
                     (0..CHUNK_U)

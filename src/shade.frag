@@ -23,17 +23,14 @@ layout(std140) buffer mat_buf {
     MatData materials[];
 };
 
-// #define WIREFRAME
-// #define WF_LIGHTING
-
 // From IQ: https://iquilezles.org/www/articles/fog/fog.htm
 vec3 applyFog( in vec3 rgb, // original color of the pixel
                in float dist, // camera to point distance
                in vec3 rayOri, // camera position
                in vec3 rayDir, // camera to point vector
                in vec3 sunDir ) { // sun light direction
-    float c = 0.05;
-    float b = 0.05;
+    float c = 0.08; // Overall fog density
+    float b = 0.05; // Altitude falloff
 
     float fogAmount = c * exp(-rayOri.y*b) * (1.0-exp( -dist*rayDir.y*b ))/rayDir.y;
     float sunAmount = max( dot( rayDir, sunDir ), 0.0 );
@@ -59,30 +56,39 @@ const float IPI = 1.0 / PI;
 #define saturate(x) clamp(x, 0.0, 1000.0)
 float sqr(float x) { return x*x; }
 
-#if 0
-vec3 bsdf(in vec3 v, in vec3 n, in vec3 l, in MatData mat) {
-    // See "Real Shading in Unreal Engine 4"
+#if 1
+float D(float NoH, float roughness) {
+    float a = sqr(roughness);
+    float a2 = sqr(a);
+    float denom = PI * sqr(sqr(NoH) * (a2 - 1.0) + 1.0);
+    return a2 / denom;
+}
+float G1(float NoV, float k) {
+    float denom = NoV * (1.0 - k) + k;
+    return NoV / denom;
+}
+float G(float NoL, float NoV, float roughness) {
+    float k = sqr(roughness + 1) / 8.0;
+    return G1(NoL, k) * G1(NoV, k);
+}
+float F(float VoH, float ior) {
+    float f0 = sqr((1.0-ior)/(1.0+ior));
+    return f0 + (1.0 - f0) * exp2((-5.55473*VoH - 6.98316) * VoH);
+}
+vec3 bsdf(in vec3 V, in vec3 L, in vec3 N, in MatData mat) {
+    vec3 H = normalize(V+L);
+    float NoL = dot(N, L);
+    float NoV = dot(N, V);
 
-    vec3 diff = mat.color * IPI;
+    float nom = D(dot(N, H), mat.roughness)
+        * F(dot(V, H), mat.ior)
+        * G(NoL, NoV, mat.roughness);
 
-    vec3 h = normalize(v+l);
+    // Prevent division by zero, even when the GPU uses 8-bit arithmetic
+    float denom = 4.0 * NoV;// * NoL;
 
-    float nDotL = dot(n,l);
-    float nDotV = dot(n,v);
-    float nDotH = dot(n,h);
-    float vDotH = dot(v,h);
-
-    float f0 = sqr((1-mat.ior)/(1+mat.ior));
-
-    float a2 = mat.roughness * mat.roughness;
-    a2 *= a2; // Is this right?
-    float D = a2 / (PI * sqr(sqr(nDotH) * (a2 - 1.0) + 1.0));
-    float k = sqr(mat.roughness+1.0) / 8.0;
-    float G = nDotV*nDotL / ( (nDotV*(1.0-k)+k) * (nDotL*(1.0-k)+k));
-    float F = f0 + (1.0 - f0) * exp2(vDotH * (-5.55473*vDotH-6.98316));
-    float spec = D * F * G / (4.0 * nDotL * nDotV);
-
-    return saturate(spec+diff);
+    return max(vec3(0.01) * max(nom,0.0) / denom,0.0)
+        + mat.color * max(0.0,IPI * max(NoL,0.0) * (1.0 - F(dot(V, H), mat.ior)));
 }
 #else
 vec3 bsdf(
@@ -130,7 +136,7 @@ vec3 bsdf(
     float D = ( shininess + 2.0 ) / 2.0 * pow( dot_n_h, shininess );
 #endif
 
-    vec3 cspec = vec3(0.5);
+    vec3 cspec = vec3(0.0);
     vec3 cdiff = mat.color * IPI;
     float clight = 1.0;
 
@@ -156,6 +162,18 @@ vec3 bsdf(
 }
 #endif
 
+/*
+
+uniform vec3 camera_pos;
+in vec3 frag_pos;
+flat in uint mat_index;
+
+vec3 rd = normalize(frag_pos - camera_pos);
+Material mat = materials[mat_index];
+frag_color = brdf(-rd, sun_dir, normal, mat);
+
+*/
+
 void main() {
     vec4 g = texelFetch(gbuff, ivec2(gl_FragCoord.xy), 0);
     vec3 frag_pos = g.xyz;
@@ -171,26 +189,18 @@ void main() {
     } else {
         vec3 rd = normalize(frag_pos - camera_pos);
         // Roughly IQ's three-light model for fake GI
-        vec3 sun_color = vec3(1.3, 1.2, 1.2);
-        vec3 sky_color = vec3(0.9, 0.9, 1.1);
+        vec3 sun_color = pow(vec3(0.7031,0.4687,0.1055), vec3(1.0 / 4.2)) * 1.5;
+        vec3 sky_color = pow(vec3(0.3984,0.5117,0.7305), vec3(1.0 / 4.2));
         MatData mat = materials[mat_index];
-        col += sun_color * bsdf(-rd, sun_dir, normal, mat);
-        col += sky_color * bsdf(-rd, normalize(vec3(0.5, 0.2, 0.5)), abs(normal), mat);
-        col += pow(sun_color, vec3(1.2)) * saturate(bsdf(-rd, -sun_dir, normal, mat));
+        col += sun_color * smoothstep(0.0, 0.1, sun_dir.y) * saturate(bsdf(-rd, sun_dir, normal, mat));
+        col += sky_color * mat.color * IPI * length(abs(normal) * vec3(0.7, 1.0, 0.85));//bsdf(-rd, normalize(normal * vec3(1, 0, 1)), normal, mat);
+        col += pow(sun_color, vec3(1.2)) * smoothstep(0.0, 0.1, sun_dir.y) * saturate(bsdf(-rd, -sun_dir, normal, mat));
+        if (mat.roughness < 0.2) {
+            vec3 r = reflect(rd,normal);
+            col += 0.25 * sky(frag_pos, r) * min(vec3(1.0),bsdf(-rd, normalize(r), normal, mat));
+        }
         col = applyFog(col, length(frag_pos - camera_pos), camera_pos, rd, sun_dir);
         a = 1.0 - mat.trans;
-        // col = pow(col, vec3(2.2)); // sRGB
-        #ifdef WIREFRAME
-        vec3 uvw = fract(frag_pos);
-        float t = max(uvw.x, max(uvw.y, uvw.z));
-        uvw += abs(normal)*0.5;
-        float q = min(uvw.x, min(uvw.y, uvw.z));
-        if (t < 0.99 && q > 0.01)
-            discard;
-        #ifndef WF_LIGHTING
-        col = vec3(1.0);
-        #endif
-        #endif
     }
     frag_color = vec4(pow(col, vec3(2.2)), a);
 }
