@@ -1,49 +1,93 @@
 use crate::common::*;
 
-pub trait ChunkTrait: std::fmt::Debug + Clone {
-    fn empty() -> Self;
-    fn full(f: &Fn(UVec3) -> Material) -> Self;
-
-    fn block(&self, idx: UVec3) -> Material;
-    fn set_block(&mut self, idx: UVec3, new: Material);
-
-    /// Returns the visible faces, indexed by faces[axis_i][u_i][v_i]
-    ///     where u = (axis + 1) % 3; and v = (axis + 2) % 3;
-    fn cull_faces(&self, axis: usize, neighbors: (&Self, &Self), phase2: bool) -> Vec<Vec<Vec<Material>>>;
-}
-
 #[derive(Debug, Clone)]
-pub struct FlatChunk {
+pub enum Chunk {
     /// Indexed by `blocks[y * CHUNK_SIZE * CHUNK_SIZE + x * CHUNK_SIZE + z]` for cache friendliness
-    blocks: Vec<Material>,
+    Flat(Vec<Material>),
+    /// Same index. (length, mat)
+    Runs(Vec<(u16, Material)>),
 }
 
 const CHUNK_U: usize = CHUNK_SIZE as usize;
 
-impl ChunkTrait for FlatChunk {
-    fn empty() -> Self {
-        FlatChunk {
-            blocks: Vec::new(),
-        }
+impl Chunk {
+    pub fn empty() -> Self {
+        Chunk::Flat(Vec::new())
     }
-    fn full(f: &Fn(UVec3) -> Material) -> Self {
-        let blocks = (0..CHUNK_U)
-            .flat_map(|y| (0..CHUNK_U).map(move |x| (y,x)))
-            .flat_map(|(y,x)| (0..CHUNK_U).map(move |z| f(UVec3::new(x,y,z))))
-            .collect();
-        FlatChunk {
-            blocks,
+    pub fn full(f: &Fn(UVec3) -> Material) -> Self {
+        let mut runs: Vec<(u16, Material)> = Vec::new();
+        let mut blocks: Vec<Material> = Vec::new();
+        for y in 0..CHUNK_U {
+            for x in 0..CHUNK_U {
+                for z in 0..CHUNK_U {
+                    let b = f(UVec3::new(x, y, z));
+                    if runs.last().map_or(false, |x| x.1 == b) {
+                        runs.last_mut().unwrap().0 += 1;
+                    } else {
+                        runs.push((1, b));
+                    }
+                    blocks.push(b);
+                }
+            }
+        }
+        if runs.len() <= 16 {
+            Chunk::Runs(runs)
+        } else {
+            Chunk::Flat(blocks)
         }
     }
 
-    fn block(&self, idx: UVec3) -> Material {
-        self.blocks[idx.y * CHUNK_U * CHUNK_U + idx.x * CHUNK_U + idx.z]
+    pub fn block(&self, idx: UVec3) -> Material {
+        match self {
+            Chunk::Flat(ref blocks) => blocks[idx.y * CHUNK_U * CHUNK_U + idx.x * CHUNK_U + idx.z],
+            Chunk::Runs(ref runs) => {
+                let mut ret = Material::Air;
+                let i = idx.y * CHUNK_U * CHUNK_U + idx.x * CHUNK_U + idx.z;
+                let mut c = 0;
+                for (l, b) in runs {
+                    c += l;
+                    if i < c.into() {
+                        ret = *b;
+                        break;
+                    }
+                }
+                ret
+            }
+        }
     }
-    fn set_block(&mut self, idx: UVec3, new: Material) {
-        self.blocks[idx.y * CHUNK_U * CHUNK_U + idx.x * CHUNK_U + idx.z] = new;
+    pub fn set_block(&mut self, idx: UVec3, new: Material) {
+        match self {
+            Chunk::Flat(ref mut blocks) => {
+                blocks[idx.y * CHUNK_U * CHUNK_U + idx.x * CHUNK_U + idx.z] = new;
+            }
+            Chunk::Runs(ref mut runs) => {
+                let i = idx.y * CHUNK_U * CHUNK_U + idx.x * CHUNK_U + idx.z;
+                let mut c = 0;
+                for j in 0..runs.len() {
+                    let (l, b) = runs[j];
+                    c += l;
+                    if i < c.into() {
+                        let start = c - l;
+                        let new_len = i as u16 - start;
+                        runs[j].0 = new_len;
+                        runs.insert(j+1, (1, new));
+                        let after = c - (i+1) as u16;
+                        if after != 0 {
+                            runs.insert(j+2, (after, b));
+                        }
+                        break;
+                    }
+                }
+            }
+        }
     }
 
-    fn cull_faces(&self, axis: usize, neighbors: (&Self, &Self), phase2: bool) -> Vec<Vec<Vec<Material>>> {
+    pub fn cull_faces(
+        &self,
+        axis: usize,
+        neighbors: (&Self, &Self),
+        phase2: bool,
+    ) -> Vec<Vec<Vec<Material>>> {
         let u = (axis + 1) % 3;
         let v = (axis + 2) % 3;
 
@@ -99,13 +143,17 @@ impl ChunkTrait for FlatChunk {
                         idx[v] = v_i;
                         let b = self.block(idx);
                         let l = last[u_i][v_i];
-                        culled[d_i][u_i].push(if (l == Material::Air || (!l.phase2() && phase2)) && b.phase2() == phase2 {
-                            b
-                        } else if b == Material::Air || (b.phase2() && !phase2) {
-                            l
-                        } else {
-                            Material::Air
-                        });
+                        culled[d_i][u_i].push(
+                            if (l == Material::Air || (!l.phase2() && phase2))
+                                && b.phase2() == phase2
+                            {
+                                b
+                            } else if b == Material::Air || (b.phase2() && !phase2) {
+                                l
+                            } else {
+                                Material::Air
+                            },
+                        );
                         last[u_i as usize][v_i as usize] = if b.phase2() == phase2 {
                             b
                         } else {

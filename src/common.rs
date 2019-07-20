@@ -13,7 +13,7 @@ use std::sync::mpsc::*;
 
 pub use crate::config::*;
 
-pub const CHUNK_SIZE: f32 = 16.0;
+pub const CHUNK_SIZE: f32 = 32.0;
 
 // Shorthands to match GLSL
 pub type IVec3 = Vector3<i32>;
@@ -35,10 +35,8 @@ pub fn in_chunk(world: Vec3) -> Vector3<usize> {
     world.map(|x| ((x as i32 % CHUNK_SIZE as i32) + CHUNK_SIZE as i32) as usize % CHUNK_SIZE as usize)
 }
 
-//pub type Material = u16;
 pub use crate::material::*;
-//pub const AIR: Material = 0;
-pub use crate::chunk::ChunkTrait;
+pub use crate::chunk::*;
 
 pub enum Connection {
     Local(Sender<Message>, Receiver<Message>),

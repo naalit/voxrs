@@ -102,7 +102,7 @@ impl Camera {
             resolution.0 as f32 / resolution.1 as f32,
             radians(90.0),
             0.1,
-            200.0,
+            6000.0,
         );
         let proj_mat =
             proj_mat * na::Matrix4::look_at_rh(&self.pos, &(self.pos + self.dir), &camera_up);
@@ -461,7 +461,7 @@ impl Client {
                 i[d] -= 1;
                 self.remesh(i);
             }
-            if in_chunk[d] == 15 {
+            if in_chunk[d] == CHUNK_SIZE as usize - 1 {
                 let mut i = chunk;
                 i[d] += 1;
                 self.remesh(i);

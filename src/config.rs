@@ -2,8 +2,6 @@ use crate::chunk::*;
 use std::sync::Arc;
 use crate::mesh::Mesher;
 
-pub type Chunk = FlatChunk;
-
 /// Config for both the client and server
 pub struct GameConfig {
     pub draw_chunks: usize, // The number of chunks to draw in every direction
