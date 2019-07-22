@@ -80,4 +80,5 @@ pub enum ChunkMessage {
     LoadChunks(Vec<IVec3>),
     Chunks(Vec<(IVec3, Chunk)>),
     UnloadChunk(IVec3, Chunk),
+    Players(Vec<Vec3>),
 }

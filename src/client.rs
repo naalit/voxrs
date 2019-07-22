@@ -470,7 +470,7 @@ impl Client {
     }
 
     fn remesh(&mut self, chunk: IVec3) -> Option<()> {
-        let chunk_rc = self.chunks.get(&chunk).unwrap();
+        let chunk_rc = self.chunks.get(&chunk)?;
         let neighbors: Vec<Arc<RwLock<Chunk>>> = neighbors(chunk)
             .into_iter()
             .filter_map(|x| self.chunks.get(&x))

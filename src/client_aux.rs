@@ -34,29 +34,35 @@ pub fn client_aux_thread(
         if let Ok(m) = client.1.try_recv() {
             if let Message::PlayerMove(p) = m {
                 player = p;
-                if timer.elapsed_ms() > 50 {
-                    server.send(m).expect("Disconnected from server");
-                    timer.restart();
-                }
             }
         } else {
             // Sync up with the client; we don't want to send more than one batch per frame
             continue;
         }
+        while let Ok(Message::PlayerMove(p)) = client.1.try_recv() {
+            player = p;
+        }
+        if timer.elapsed_ms() > 50 {
+            server.send(Message::PlayerMove(player)).expect("Disconnected from server");
+            timer.restart();
+        }
 
-        if indices.len() != 0 && counter >= 20 {
+        if indices.len() != 0 && counter >= 10 {
             let c = world_to_chunk(player);
-            println!("Rechunking");
+            // println!("Rechunking");
+            // let timer = stopwatch::Stopwatch::start_new();
             indices.sort_by_key(|x| ((chunk_to_world(*x) - player).norm() * 10.0) as i32);
             while indices.len() != 0 && (indices.last().unwrap() - c).map(|x| x as f32).norm() > config.game_config.draw_chunks as f32 {
                 let r = indices.pop().unwrap();
                 chunk_map.remove(&r);
             }
+            // println!("Rechunking took {} ms", timer.elapsed_ms());
 
             counter = 0;
         }
 
         if indices.len() != 0 {
+            // let timer = stopwatch::Stopwatch::start_new();
             let meshed: Vec<_> = indices
                 .iter()
                 .take(config.batch_size.min(indices.len()))
@@ -91,6 +97,7 @@ pub fn client_aux_thread(
             let r = meshed.iter().map(|x|x.0).collect::<HashSet<_>>();
             indices.retain(|x| !r.contains(x));
             client.0.send(meshed).unwrap();
+            // println!("Meshing took {} ms/chunk", timer.elapsed_ms() as f64 / r.len() as f64);
             counter += 1;
         }
         if let Some(m) = server.recv() {

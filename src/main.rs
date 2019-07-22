@@ -37,7 +37,7 @@ fn main() {
 
     let config = GameConfig {
         draw_chunks: 16,
-        batch_size: 256,
+        batch_size: 64,
     };
     let config = Arc::new(config);
 

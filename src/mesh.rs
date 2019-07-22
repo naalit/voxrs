@@ -173,6 +173,7 @@ impl Mesher for Culled {
 
             // The faces that need to be drawn
             let mut culled = grid.cull_faces(d, (&fb.0.read().unwrap(), &fb.1.read().unwrap()), phase2);
+            if culled.len() == 0 { continue; }
 
             // The actual sweeping
             for d_i in 0..CHUNK_SIZE as usize + 1 {
@@ -255,6 +256,7 @@ impl Mesher for Greedy {
 
             // The faces that need to be drawn
             let mut culled = grid.cull_faces(d, (&fb.0.read().unwrap(), &fb.1.read().unwrap()), phase2);
+            if culled.len() == 0 { continue; }
 
             // The actual sweeping
             for d_i in 0..CHUNK_SIZE as usize + 1 {

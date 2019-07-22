@@ -63,6 +63,7 @@ impl Server {
     /// Runs an infinite tick loop. It's infinite, start as a new thread!
     pub fn run(mut self) {
         let mut running = true;
+        let mut counter = 0;
         while running {
             let mut p = Vec::new();
             std::mem::swap(&mut p, &mut self.players);
@@ -92,14 +93,25 @@ impl Server {
                 Some(p)
             }).collect();
 
+            counter += 1;
+            if counter > 20 {
+                counter = 0;
+                let p: Vec<Vec3> = self.players.iter().map(|x| x.pos).collect();
+                let keys: Vec<_> = self.orders.keys().cloned().collect();
+                for k in keys {
+                    if !p.iter().any(|y| (world_to_chunk(*y) - k).map(|x| x as f32).norm() < self.config.draw_chunks as f32) {
+                        self.orders.remove(&k);
+                    }
+                }
+                self.ch.0.send(ChunkMessage::Players(p)).unwrap();
+            }
+
             while let Ok(m) = self.ch.1.try_recv() {
                 match m {
                     ChunkMessage::Chunks(x) => {
-                        let locs: Vec<IVec3> = x.iter().map(|y| y.0).collect();
-
                         let mut batches = HashMap::new();
                         for (i, c) in &x {
-                            if let Some(v) = self.orders.remove(&i) {
+                            if let Some(v) = self.orders.remove(i) {
                                 for (id, conn) in v {
                                     batches.entry(id).or_insert_with(|| (conn, Vec::new())).1.push((*i, c.clone()));
                                 }
@@ -112,6 +124,7 @@ impl Server {
                         for (loc, chunk) in x.into_iter() {
                             self.chunks.insert(loc, chunk); // There's a very small chance we're replacing a chunk; see Todo below
                         }
+
                     },
                     _ => panic!("Chunk thread sent {:?}", m),
                 }

@@ -23,13 +23,17 @@ impl Gen {
                     .map(move |z| {
                         3.0 + 12.0
                             * self.noise.get([
-                                (start.x as f64 + x as f64) * 0.01,
-                                (start.z as f64 + z as f64) * 0.01,
+                                (start.x as f64 + x as f64) * 0.004,
+                                (start.z as f64 + z as f64) * 0.004,
                             ]) as f32
                     })
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
+
+        if start.y > *chunk_heightmap.iter().flatten().max_by_key(|x| **x as i32).unwrap() {
+            return Chunk::empty();
+        }
 
         let grid = Chunk::full(&mut |p| {
             let height = chunk_heightmap[p.x][p.z]; //3.0 + 4.0 * self.noise.get([(start.x as f64 + x as f64) * 0.01, (start.z as f64 + z as f64) * 0.01]) as f32;

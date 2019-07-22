@@ -12,7 +12,7 @@ const CHUNK_U: usize = CHUNK_SIZE as usize;
 
 impl Chunk {
     pub fn empty() -> Self {
-        Chunk::Flat(Vec::new())
+        Chunk::Runs(vec![((CHUNK_U * CHUNK_U * CHUNK_U) as u16, Material::Air)])
     }
     pub fn full(f: &Fn(UVec3) -> Material) -> Self {
         let mut runs: Vec<(u16, Material)> = Vec::new();
@@ -82,12 +82,24 @@ impl Chunk {
         }
     }
 
+    /// Indexed by `faces[axis][u][v]` where `u = (axis + 1) % 3; v = (axis + 2) % 3;`
     pub fn cull_faces(
         &self,
         axis: usize,
         neighbors: (&Self, &Self),
         phase2: bool,
     ) -> Vec<Vec<Vec<Material>>> {
+
+        // Special case
+        if let Chunk::Runs(runs) = self {
+            if runs.len() == 1 {
+                let r = runs.first().unwrap();
+                if r.1 == Material::Air {
+                    return Vec::new();
+                }
+            }
+        }
+
         let u = (axis + 1) % 3;
         let v = (axis + 2) % 3;
 
