@@ -16,6 +16,7 @@ mod config;
 mod common;
 mod input;
 mod material;
+mod world;
 mod mesh;
 mod server;
 mod terrain;

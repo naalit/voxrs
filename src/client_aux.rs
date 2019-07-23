@@ -1,10 +1,10 @@
 // This is the client auxilary thread, which is in charge of recieving chunks, meshing them, and sending them to the client thread.
 
-use std::collections::HashSet;
-use crate::mesh::Vertex;
 use crate::common::*;
+use crate::mesh::Vertex;
 use crate::mesh::*;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::mpsc::*;
 use std::sync::{Arc, RwLock};
 
@@ -43,7 +43,9 @@ pub fn client_aux_thread(
             player = p;
         }
         if timer.elapsed_ms() > 50 {
-            server.send(Message::PlayerMove(player)).expect("Disconnected from server");
+            server
+                .send(Message::PlayerMove(player))
+                .expect("Disconnected from server");
             timer.restart();
         }
 
@@ -51,11 +53,16 @@ pub fn client_aux_thread(
             let c = world_to_chunk(player);
             // println!("Rechunking");
             // let timer = stopwatch::Stopwatch::start_new();
+
             indices.sort_by_key(|x| ((chunk_to_world(*x) - player).norm() * 10.0) as i32);
-            while indices.len() != 0 && (indices.last().unwrap() - c).map(|x| x as f32).norm() > config.game_config.draw_chunks as f32 {
+            while indices.len() != 0
+                && (indices.last().unwrap() - c).map(|x| x as f32).norm()
+                    > config.game_config.draw_chunks as f32
+            {
                 let r = indices.pop().unwrap();
                 chunk_map.remove(&r);
             }
+
             // println!("Rechunking took {} ms", timer.elapsed_ms());
 
             counter = 0;
@@ -67,17 +74,27 @@ pub fn client_aux_thread(
                 .iter()
                 .take(config.batch_size.min(indices.len()))
                 .cloned()
-                .map(|loc| (loc,chunk_map.get(&loc).unwrap()))
+                .map(|loc| (loc, chunk_map.get(&loc).unwrap()))
                 .filter_map(|(loc, chunk)| {
                     let neighbors = neighbors(loc).into_iter().map(|x| chunk_map.get(&x));
-                    if neighbors.clone().all(|x|x.is_some()) {
-                        let neighbors: Vec<Arc<RwLock<Chunk>>> = neighbors.map(|x|x.unwrap()).cloned().collect();
-                        Some((loc,chunk,neighbors))
+                    if neighbors.clone().all(|x| x.is_some()) {
+                        let neighbors: Vec<Arc<RwLock<Chunk>>> =
+                            neighbors.map(|x| x.unwrap()).cloned().collect();
+                        Some((loc, chunk, neighbors))
                     } else {
                         None
                     }
                 })
-                .map(|(loc, chunk, neighbors)| (loc, config.mesher.mesh(&chunk.read().unwrap(), neighbors.clone(), false), config.mesher.mesh(&chunk.read().unwrap(), neighbors, true), Arc::clone(&chunk)))
+                .map(|(loc, chunk, neighbors)| {
+                    (
+                        loc,
+                        config
+                            .mesher
+                            .mesh(&chunk.read().unwrap(), neighbors.clone(), false),
+                        config.mesher.mesh(&chunk.read().unwrap(), neighbors, true),
+                        Arc::clone(&chunk),
+                    )
+                })
                 .map(|(loc, mesh, mesh_p2, chunk)| {
                     if mesh.len() != 0 {
                         let v_physics: Vec<_> =
@@ -85,16 +102,16 @@ pub fn client_aux_thread(
                         let i_physics: Vec<_> = (0..v_physics.len() / 3)
                             .map(|x| na::Point3::new(x * 3, x * 3 + 1, x * 3 + 2))
                             .collect();
-                        let chunk_shape = nc::shape::ShapeHandle::new(
-                            nc::shape::TriMesh::new(v_physics, i_physics, None),
-                        );
+                        let chunk_shape = nc::shape::ShapeHandle::new(nc::shape::TriMesh::new(
+                            v_physics, i_physics, None,
+                        ));
                         (loc, mesh, mesh_p2, Some(chunk_shape), chunk)
                     } else {
                         (loc, mesh, mesh_p2, None, chunk)
                     }
                 })
                 .collect();
-            let r = meshed.iter().map(|x|x.0).collect::<HashSet<_>>();
+            let r = meshed.iter().map(|x| x.0).collect::<HashSet<_>>();
             indices.retain(|x| !r.contains(x));
             client.0.send(meshed).unwrap();
             // println!("Meshing took {} ms/chunk", timer.elapsed_ms() as f64 / r.len() as f64);
@@ -110,8 +127,12 @@ pub fn client_aux_thread(
                         chunks.iter().map(|x| x.0).collect::<Vec<IVec3>>()
                     );
                     */
-                    indices.extend(chunks.iter().map(|x|x.0));
-                    chunk_map.extend(chunks.into_iter().map(|(x,y)| (x,Arc::new(RwLock::new(y))) ));
+                    indices.extend(chunks.iter().map(|x| x.0));
+                    chunk_map.extend(
+                        chunks
+                            .into_iter()
+                            .map(|(x, y)| (x, Arc::new(RwLock::new(y)))),
+                    );
                     counter = 100; // Trigger a re-sort
                 }
                 _ => (),

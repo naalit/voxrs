@@ -78,7 +78,22 @@ impl Chunk {
                         break;
                     }
                 }
+                if runs.len() > 16 {
+                    // RLE is no longer suitable for this chunk, switch to flat encoding
+                    self.flatten();
+                }
             }
+        }
+    }
+
+    fn flatten(&mut self) {
+        if let Chunk::Runs(runs) = self {
+            let mut blocks = Vec::new();
+            // We can do this because the flat array is in the same order as the runs
+            for (len, b) in runs {
+                blocks.extend((0..*len).map(|_| b.clone()));
+            }
+            *self = Chunk::Flat(blocks);
         }
     }
 

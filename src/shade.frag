@@ -9,6 +9,7 @@ uniform vec3 camera_pos;
 uniform mat4 proj_mat;
 uniform sampler2D gbuff;
 uniform vec3 sun_dir;
+uniform uvec2 resolution;
 
 struct MatData {
     vec3 color;
@@ -183,7 +184,11 @@ void main() {
 
     vec3 col = vec3(0);
     float a = 1.0;
-    if (mat_index == 0u) {
+    vec2 uva = uv;
+    uva.x *= float(resolution.x) / float(resolution.y);
+    if (length(uva) < 0.005) {
+        col = vec3(1);
+    } else if (mat_index == 0u) {
         vec4 cd = inverse(proj_mat) * vec4(uv,1,1);
         col = sky(camera_pos, normalize(cd.xyz/cd.w - camera_pos));
     } else {

@@ -1,10 +1,11 @@
-use std::sync::Arc;
-use crate::common::*;
 use crate::chunk_thread::*;
-use std::collections::{HashSet, HashMap};
-use std::sync::mpsc::*;
-use std::thread;
+use crate::common::*;
+use crate::world::*;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+use std::sync::mpsc::*;
+use std::sync::Arc;
+use std::thread;
 
 struct Player {
     pos: Vec3,
@@ -14,7 +15,7 @@ struct Player {
 }
 
 pub struct Server {
-    chunks: HashMap<IVec3, Chunk>,
+    world: ArcWorld,
     refs: HashMap<IVec3, usize>,
     players: Vec<Player>,
     orders: HashMap<IVec3, Vec<(usize, Rc<Connection>)>>,
@@ -28,12 +29,13 @@ impl Server {
         let (to, from_them) = channel();
         let (to_them, from) = channel();
         let c = Arc::clone(&config);
-        thread::spawn(move ||{
-            ChunkThread::new(c, to_them, from_them).run()
-        });
+        let world = arcworld();
+        let wc = Arc::clone(&world);
+
+        thread::spawn(move || ChunkThread::new(c, wc, to_them, from_them).run());
 
         Server {
-            chunks: HashMap::new(),
+            world,
             refs: HashMap::new(),
             players: Vec::new(),
             orders: HashMap::new(),
@@ -52,7 +54,10 @@ impl Server {
         let (wait, load) = self.load_chunks_around(pos);
         //p.to_send.append(&mut wait);
         for i in wait {
-            self.orders.entry(i).or_insert_with(|| Vec::new()).push((new_player.id, Rc::clone(&new_player.conn)));
+            self.orders
+                .entry(i)
+                .or_insert_with(|| Vec::new())
+                .push((new_player.id, Rc::clone(&new_player.conn)));
         }
         if load.len() > 0 {
             new_player.conn.send(Message::Chunks(load)).unwrap();
@@ -63,43 +68,57 @@ impl Server {
     /// Runs an infinite tick loop. It's infinite, start as a new thread!
     pub fn run(mut self) {
         let mut running = true;
-        let mut counter = 0;
         while running {
             let mut p = Vec::new();
             std::mem::swap(&mut p, &mut self.players);
-            self.players = p.into_iter().filter_map(|mut p| {
-                let mut np = p.pos;
-                while let Some(m) = p.conn.recv() {
-                    match m {
-                        Message::PlayerMove(n_pos) => {
-                            np = n_pos;
-                        },
-                        Message::Leave => match *p.conn {
-                            Connection::Local(_,_) => { running = false; break; },
-                            _ => return None,
-                        },
-                        _ => panic!("Hey, a client sent a message {:?}", m),
+            let mut change = false;
+            self.players = p
+                .into_iter()
+                .filter_map(|mut p| {
+                    let mut np = p.pos;
+                    while let Some(m) = p.conn.recv() {
+                        match m {
+                            Message::PlayerMove(n_pos) => {
+                                np = n_pos;
+                            }
+                            Message::Leave => match *p.conn {
+                                Connection::Local(_, _) => {
+                                    running = false;
+                                    break;
+                                }
+                                _ => return None,
+                            },
+                            _ => panic!("Hey, a client sent a message {:?}", m),
+                        }
                     }
-                }
-                let (wait, load) = self.load_chunk_diff(p.pos, np);
-                //p.to_send.append(&mut wait);
-                for i in wait {
-                    self.orders.entry(i).or_insert_with(|| Vec::new()).push((p.id, Rc::clone(&p.conn)));
-                }
-                if load.len() > 0 {
-                    p.conn.send(Message::Chunks(load)).unwrap();
-                }
-                p.pos = np;
-                Some(p)
-            }).collect();
+                    let (wait, load) = self.load_chunk_diff(p.pos, np);
+                    //p.to_send.append(&mut wait);
+                    if !change && (wait.len() != 0 || load.len() != 0) {
+                        change = true;
+                    }
+                    for i in wait {
+                        self.orders
+                            .entry(i)
+                            .or_insert_with(|| Vec::new())
+                            .push((p.id, Rc::clone(&p.conn)));
+                    }
+                    if load.len() > 0 {
+                        p.conn.send(Message::Chunks(load)).unwrap();
+                    }
+                    p.pos = np;
+                    Some(p)
+                })
+                .collect();
 
-            counter += 1;
-            if counter > 20 {
-                counter = 0;
+            if change {
                 let p: Vec<Vec3> = self.players.iter().map(|x| x.pos).collect();
+                let p2: Vec<_> = p.iter().map(|x| world_to_chunk(*x)).collect();
                 let keys: Vec<_> = self.orders.keys().cloned().collect();
                 for k in keys {
-                    if !p.iter().any(|y| (world_to_chunk(*y) - k).map(|x| x as f32).norm() < self.config.draw_chunks as f32) {
+                    if !p2
+                        .iter()
+                        .any(|y| (y - k).map(|x| x as f32).norm() <= self.config.draw_chunks as f32)
+                    {
                         self.orders.remove(&k);
                     }
                 }
@@ -108,28 +127,34 @@ impl Server {
 
             while let Ok(m) = self.ch.1.try_recv() {
                 match m {
-                    ChunkMessage::Chunks(x) => {
-                        let mut batches = HashMap::new();
-                        for (i, c) in &x {
-                            if let Some(v) = self.orders.remove(i) {
-                                for (id, conn) in v {
-                                    batches.entry(id).or_insert_with(|| (conn, Vec::new())).1.push((*i, c.clone()));
+                    ChunkMessage::LoadChunks(x) => {
+                        let batches = {
+                            let mut batches = HashMap::new();
+                            let world = self.world.read().unwrap();
+                            for i in &x {
+                                if let Some(v) = self.orders.remove(i) {
+                                    if let Some(c) = world.chunk(i) {
+                                        for (id, conn) in v {
+                                            batches
+                                                .entry(id)
+                                                .or_insert_with(|| (conn, Vec::new()))
+                                                .1
+                                                .push((*i, c.clone()));
+                                        }
+                                    } else {
+                                        println!("Error!");
+                                    }
                                 }
                             }
-                        }
+                            batches
+                        };
                         for (_, (conn, v)) in batches {
                             conn.send(Message::Chunks(v));
                         }
-
-                        for (loc, chunk) in x.into_iter() {
-                            self.chunks.insert(loc, chunk); // There's a very small chance we're replacing a chunk; see Todo below
-                        }
-
-                    },
+                    }
                     _ => panic!("Chunk thread sent {:?}", m),
                 }
             }
-
         }
     }
 
@@ -146,26 +171,29 @@ impl Server {
         for x in -draw_chunks..draw_chunks {
             for y in -draw_chunks..draw_chunks {
                 for z in -draw_chunks..draw_chunks {
-                    let p = IVec3::new(x,y,z);
-                    if p.map(|x|x as f32).norm() <= self.config.draw_chunks as f32 {
-                        to_load.push(chunk_pos+p);
+                    let p = IVec3::new(x, y, z);
+                    if p.map(|x| x as f32).norm() <= self.config.draw_chunks as f32 {
+                        to_load.push(chunk_pos + p);
                     }
                 }
             }
         }
 
-        to_load.sort_by_cached_key(|a| ((a.map(|x|x as f32)).norm() * 10.0) as i32);
+        to_load.sort_by_cached_key(|a| ((a.map(|x| x as f32)).norm() * 10.0) as i32);
 
         let mut to_send = Vec::new();
         let mut to_pass = Vec::new();
+        let world = self.world.read().unwrap();
         for p in to_load {
-            match self.chunks.get(&p) {
-                Some(chunk) => to_pass.push((p,chunk.clone())),
-                None        => to_send.push(p),
+            match world.chunk(&p) {
+                Some(chunk) => to_pass.push((p, chunk.clone())),
+                None => to_send.push(p),
             }
             match self.refs.get_mut(&p) {
                 Some(x) => *x += 1, // This is indeed possible but ugly; see Todo below
-                None    => { self.refs.insert(p,1); },
+                None => {
+                    self.refs.insert(p, 1);
+                }
             }
         }
 
@@ -173,7 +201,10 @@ impl Server {
         // The calling function will add this player to `orders` too, so we don't need to bother here
         to_send.retain(|x| !self.orders.contains_key(&x));
 
-        self.ch.0.send(ChunkMessage::LoadChunks(to_send.clone())).unwrap();
+        self.ch
+            .0
+            .send(ChunkMessage::LoadChunks(to_send.clone()))
+            .unwrap();
         (to_send, to_pass)
     }
 
@@ -197,10 +228,10 @@ impl Server {
         for x in -draw_chunks..draw_chunks {
             for y in -draw_chunks..draw_chunks {
                 for z in -draw_chunks..draw_chunks {
-                    let p = IVec3::new(x,y,z);
-                    if p.map(|x|x as f32).norm() <= self.config.draw_chunks as f32 {
-                        around_old.insert(chunk_old+p);
-                        around_new.insert(chunk_new+p);
+                    let p = IVec3::new(x, y, z);
+                    if p.map(|x| x as f32).norm() <= self.config.draw_chunks as f32 {
+                        around_old.insert(chunk_old + p);
+                        around_new.insert(chunk_new + p);
                     }
                 }
             }
@@ -208,11 +239,15 @@ impl Server {
         let to_load = &around_new - &around_old;
         let to_unload = &around_old - &around_new;
 
+        let mut world = self.world.write().unwrap();
         for i in to_unload {
             if self.refs.contains_key(&i) {
                 let r = {
                     // Lower the refcount on this chunk by one
-                    let q = self.refs.get_mut(&i).expect("Tried to unload a chunk that isn't loaded");
+                    let q = self
+                        .refs
+                        .get_mut(&i)
+                        .expect("Tried to unload a chunk that isn't loaded");
                     let r = *q - 1;
                     *q = r;
                     r
@@ -220,7 +255,7 @@ impl Server {
                 // If the refcount is zero, nobody's using it so we can unload it
                 if r <= 0 {
                     // TODO tell chunk thread to unload this chunk
-                    self.chunks.remove(&i);
+                    world.remove_chunk(&i);
                     self.refs.remove(&i);
                 }
             } else {
@@ -231,13 +266,15 @@ impl Server {
         let mut to_send = Vec::new();
         let mut to_pass = Vec::new();
         for p in to_load {
-            match self.chunks.get(&p) {
-                Some(chunk) => to_pass.push((p,chunk.clone())),
-                None        => to_send.push(p),
+            match world.chunk(&p) {
+                Some(chunk) => to_pass.push((p, chunk.clone())),
+                None => to_send.push(p),
             }
             match self.refs.get_mut(&p) {
                 Some(x) => *x += 1, // This is indeed possible but ugly; see Todo below
-                None    => { self.refs.insert(p,1); },
+                None => {
+                    self.refs.insert(p, 1);
+                }
             }
         }
 
@@ -245,9 +282,12 @@ impl Server {
         // The calling function will add this player to `orders` too, so we don't need to bother here
         to_send.retain(|x| !self.orders.contains_key(&x));
 
-        to_send.sort_by_cached_key(|a| ((a - chunk_new).map(|x|x as f32).norm() * 10.0) as i32);
+        to_send.sort_by_cached_key(|a| ((a - chunk_new).map(|x| x as f32).norm() * 10.0) as i32);
 
-        self.ch.0.send(ChunkMessage::LoadChunks(to_send.clone())).unwrap();
+        self.ch
+            .0
+            .send(ChunkMessage::LoadChunks(to_send.clone()))
+            .unwrap();
         (to_send, to_pass)
     }
 }

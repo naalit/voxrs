@@ -3,12 +3,11 @@
 /// - `Vec3` is a position in world-space, in increments of 1 meter
 /// - `IVec3` is a chunk location in world-space, in increments of 1 chunk
 /// - `UVec3` is a block within a chunk
-
 pub use nalgebra as na;
-pub use nphysics3d as np;
+pub use nalgebra::{Isometry3, Point3, Scalar, Unit, Vector3};
 pub use ncollide3d as nc;
 pub use np::object::Body;
-pub use nalgebra::{Vector3, Point3, Isometry3, Scalar, Unit};
+pub use nphysics3d as np;
 use std::sync::mpsc::*;
 
 pub use crate::config::*;
@@ -28,15 +27,18 @@ pub fn chunk_to_world(chunk: IVec3) -> Vec3 {
     chunk.map(|x| x as f32 + 0.5) * CHUNK_SIZE
 }
 pub fn world_to_chunk(world: Vec3) -> IVec3 {
-    world.map(|x| x as i32 + if x < 0.0 { 1 } else { 0 }) / CHUNK_SIZE as i32 - world.map(|x| if x < 0.0 { 1 } else { 0 })
+    world.map(|x| x as i32 + if x < 0.0 { 1 } else { 0 }) / CHUNK_SIZE as i32
+        - world.map(|x| if x < 0.0 { 1 } else { 0 })
 }
 /// The index of a block within its home chunk
-pub fn in_chunk(world: Vec3) -> Vector3<usize> {
-    world.map(|x| ((x as i32 % CHUNK_SIZE as i32) + CHUNK_SIZE as i32) as usize % CHUNK_SIZE as usize)
+pub fn in_chunk(world: Vec3) -> UVec3 {
+    world.map(|x| {
+        ((x as i32 % CHUNK_SIZE as i32) + CHUNK_SIZE as i32) as usize % CHUNK_SIZE as usize
+    })
 }
 
-pub use crate::material::*;
 pub use crate::chunk::*;
+pub use crate::material::*;
 
 pub enum Connection {
     Local(Sender<Message>, Receiver<Message>),
@@ -78,7 +80,7 @@ pub enum Message {
 #[derive(Debug)]
 pub enum ChunkMessage {
     LoadChunks(Vec<IVec3>),
-    Chunks(Vec<(IVec3, Chunk)>),
+    // Chunks(Vec<(IVec3, Chunk)>),
     UnloadChunk(IVec3, Chunk),
     Players(Vec<Vec3>),
 }

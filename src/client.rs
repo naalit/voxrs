@@ -9,6 +9,7 @@ use glsl_include::Context as ShaderContext;
 use std::collections::HashMap;
 use std::sync::mpsc::*;
 use std::sync::{Arc, RwLock};
+use std::ops::Deref;
 
 #[derive(Clone)]
 struct Camera {
@@ -279,7 +280,7 @@ impl Client {
     }
 
     fn draw(
-        &self,
+        &mut self,
         target: &mut Frame,
         draw_stuff: &DrawStuff,
         gbuff_fb: &mut glium::framebuffer::SimpleFrameBuffer,
@@ -296,7 +297,7 @@ impl Client {
 
         // Draw chunks onto the G-Buffer
         gbuff_fb.clear_color_and_depth((0.0, 0.0, 0.0, 0.0), 1.0);
-        for (_loc, mesh) in self.meshes.iter() {
+        for (_loc, mesh) in self.meshes.iter_mut() {
             mesh.draw(
                 gbuff_fb,
                 &draw_stuff.gbuff_program,
@@ -321,13 +322,14 @@ impl Client {
                     proj_mat: proj_mat,
                     sun_dir: <[f32; 3]>::from(sun_dir.into()),
                     gbuff: &draw_stuff.gbuff,
+                    resolution: resolution,
                 },
                 &Default::default(),
             )
             .unwrap();
 
         // Draw p2 chunks onto the G-Buffer
-        for (_loc, mesh) in self.meshes.iter() {
+        for (_loc, mesh) in self.meshes.iter_mut() {
             mesh.draw_p2(
                 gbuff_fb,
                 &draw_stuff.gbuff_program,
@@ -352,6 +354,7 @@ impl Client {
                     proj_mat: proj_mat,
                     sun_dir: <[f32; 3]>::from(sun_dir.into()),
                     gbuff: &draw_stuff.gbuff,
+                    resolution: resolution,
                 },
                 &glium::draw_parameters::DrawParameters {
                     blend: Blend::alpha_blending(),
@@ -391,7 +394,24 @@ impl Client {
                         if let Some(p) = self.trace(self.pos(), self.camera.dir, 16.0) {
                             self.set_block(p.cell, Material::Air);
                         }
-                    }
+                    },
+                    // Right-click
+                    glutin::DeviceEvent::Button {
+                        button: 3,
+                        state: glutin::ElementState::Pressed,
+                    } => {
+                        if let Some(p) = self.trace(self.pos(), self.camera.dir, 16.0) {
+                            let b = p.cell + p.normal.map(|x| x as i32);
+                            let iso1 = self.world.rigid_body(self.player_handle).unwrap().position();
+                            let shape1 = self.world.collider_world().body_colliders(self.player_handle).next().unwrap().shape();
+                            let shape2 = nc::shape::Cuboid::new(Vec3::repeat(0.5));
+                            let iso2 = na::Isometry3::from_parts(na::Translation::from(b.map(|x| x as f32 + 0.5)), na::UnitQuaternion::new_normalize(na::Quaternion::identity()));
+                            let d = nc::query::distance(iso1, shape1.deref(), &iso2, &shape2);
+                            if d > 0.01 {
+                                self.set_block(b, Material::Grass);
+                            }
+                        }
+                    },
                     _ => (),
                 }
                 camera.event(event, resolution);
@@ -516,6 +536,7 @@ impl Client {
             verts_p2,
             chunk.map(|x| x as f32) * CHUNK_SIZE,
             Vec3::new(0.0, 0.0, 0.0),
+            false,
         );
         self.meshes.insert(chunk, mesh);
 
@@ -543,6 +564,7 @@ impl Client {
                 v2,
                 i.map(|x| x as f32) * CHUNK_SIZE,
                 Vec3::new(0.0, 0.0, 0.0),
+                true,
             );
 
             self.chunks.insert(i, c);

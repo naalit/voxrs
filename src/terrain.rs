@@ -31,7 +31,8 @@ impl Gen {
             })
             .collect::<Vec<_>>();
 
-        if start.y > *chunk_heightmap.iter().flatten().max_by_key(|x| **x as i32).unwrap() {
+        // The whole chunk is above the ground, so we don't need to bother
+        if start.y > chunk_heightmap.iter().flatten().max_by_key(|x| x.ceil() as i32).unwrap().ceil() {
             return Chunk::empty();
         }
 

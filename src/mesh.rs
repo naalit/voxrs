@@ -27,6 +27,8 @@ pub struct Mesh {
     empty_p2: bool, // For phase 2, where we draw transparent things
     vbuff: Option<Rc<VertexBuffer<Vertex>>>,
     vbuff_p2: Option<Rc<VertexBuffer<Vertex>>>,
+    model: Isometry3<f32>,
+    c: f32,
     model_mat: [[f32; 4]; 4],
 }
 
@@ -37,7 +39,10 @@ impl Mesh {
         verts_p2: Vec<Vertex>,
         loc: Vec3,
         rot: Vec3,
+        new: bool,
     ) -> Self {
+        let c = if new { 2.0 } else { 0.0 };
+
         let empty = verts.len() == 0;
         let empty_p2 = verts_p2.len() == 0;
 
@@ -64,24 +69,32 @@ impl Mesh {
             empty_p2,
             vbuff,
             vbuff_p2,
+            c,
+            model,
             model_mat,
         }
     }
 
     pub fn draw<T: glium::uniforms::AsUniformValue, R: glium::uniforms::Uniforms>(
-        &self,
+        &mut self,
         frame: &mut impl Surface,
         program: &Program,
         params: &DrawParameters,
         uniforms: glium::uniforms::UniformsStorage<'_, T, R>,
     ) {
         if !self.empty {
+            let mut matc = self.model;
+            matc.translation.vector.y -= self.c;
+            let matc: [[f32; 4]; 4] = *matc.to_homogeneous().as_ref();
+            if self.c > 0.0 {
+                self.c -= 0.2;
+            }
             frame
                 .draw(
                     self.vbuff.clone().unwrap().as_ref(),
                     &glium::index::NoIndices(glium::index::PrimitiveType::TrianglesList),
                     program,
-                    &uniforms.add("model", self.model_mat),
+                    &uniforms.add("model", matc),
                     params,
                 )
                 .unwrap();
@@ -89,19 +102,25 @@ impl Mesh {
     }
 
     pub fn draw_p2<T: glium::uniforms::AsUniformValue, R: glium::uniforms::Uniforms>(
-        &self,
+        &mut self,
         frame: &mut impl Surface,
         program: &Program,
         params: &DrawParameters,
         uniforms: glium::uniforms::UniformsStorage<'_, T, R>,
     ) {
+        let mut matc = self.model;
+        matc.translation.vector.y -= self.c;
+        let matc: [[f32; 4]; 4] = *matc.to_homogeneous().as_ref();
+        if self.c > 0.0 && self.empty { // Only do this once
+            self.c -= 0.2;
+        }
         if !self.empty_p2 {
             frame
                 .draw(
                     self.vbuff_p2.clone().unwrap().as_ref(),
                     &glium::index::NoIndices(glium::index::PrimitiveType::TrianglesList),
                     program,
-                    &uniforms.add("model", self.model_mat),
+                    &uniforms.add("model", matc),
                     params,
                 )
                 .unwrap();
