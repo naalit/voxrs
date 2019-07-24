@@ -10,7 +10,7 @@ pub struct Gen {
 impl Gen {
     pub fn new() -> Self {
         Gen {
-            noise: HybridMulti::new().set_seed(1),
+            noise: HybridMulti::new().set_seed(1).set_octaves(8).set_persistence(0.5),
         }
     }
 
@@ -21,10 +21,10 @@ impl Gen {
             .map(move |x| {
                 (0..CHUNK_SIZE as usize)
                     .map(move |z| {
-                        3.0 + 12.0
+                        3.0 + 48.0
                             * self.noise.get([
-                                (start.x as f64 + x as f64) * 0.004,
-                                (start.z as f64 + z as f64) * 0.004,
+                                (start.x as f64 + x as f64) * 0.0004,
+                                (start.z as f64 + z as f64) * 0.0004,
                             ]) as f32
                     })
                     .collect::<Vec<_>>()
@@ -32,7 +32,7 @@ impl Gen {
             .collect::<Vec<_>>();
 
         // The whole chunk is above the ground, so we don't need to bother
-        if start.y > chunk_heightmap.iter().flatten().max_by_key(|x| x.ceil() as i32).unwrap().ceil() {
+        if start.y > 0.0 && start.y > chunk_heightmap.iter().flatten().max_by_key(|x| x.ceil() as i32).unwrap().ceil() {
             return Chunk::empty();
         }
 
