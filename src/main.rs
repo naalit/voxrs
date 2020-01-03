@@ -26,22 +26,47 @@ use client::*;
 use common::*;
 use server::*;
 
+use std::fs::File;
+use std::io::Write;
+
 fn main() {
     // Wayland doesn't allow cursor grabbing
     let events_loop: glutin::EventsLoop = glutin::os::unix::EventsLoopExt::new_x11().unwrap();
     let wb = glutin::WindowBuilder::new()
-        .with_title("Vox.rs 2")
+        .with_title("Vox.rs")
         .with_fullscreen(Some(events_loop.get_primary_monitor()));
     let cb = glutin::ContextBuilder::new().with_depth_buffer(24);
     let display = glium::Display::new(wb, cb, &events_loop).unwrap();
     display.gl_window().window().grab_cursor(true).unwrap();
     display.gl_window().window().hide_cursor(true);
 
-    let config = GameConfig {
-        draw_chunks: 16,
-        batch_size: 64,
+    let app_info = app_dirs2::AppInfo {
+        name: "voxrs",
+        author: "Lorxu",
     };
-    let config = Arc::new(config);
+    let mut config_file = app_dirs2::app_root(app_dirs2::AppDataType::UserConfig, &app_info).unwrap();
+    config_file.push("config.ron");
+    let client_config = if config_file.exists() {
+        ron::de::from_reader(File::open(config_file).unwrap()).expect("bad config file")
+    } else {
+        let c = ClientConfig {
+            mesher: crate::mesh::Mesher::Greedy,
+            wireframe: false,
+            batch_size: 16,
+            keycodes: crate::input::DEFAULT_KEY_CODES,
+            game_config: Arc::new(GameConfig {
+                draw_chunks: 16,
+                batch_size: 64,
+            }),
+        };
+        let s = ron::ser::to_string(&c).unwrap();
+        let mut f = File::create(config_file).unwrap();
+        writeln!(f, "{}", s).unwrap();
+        c
+    };
+    let client_config = Arc::new(client_config);
+
+    let config = Arc::clone(&client_config.game_config);
 
     let resolution: (u32, u32) = display
         .gl_window()
@@ -53,7 +78,7 @@ fn main() {
     let camera_pos = Vec3::new(4.0, 16.0, 4.0);
 
     let (conn_client, conn_server) = Connection::local();
-    let client = Client::new(display, Arc::clone(&config), conn_client, camera_pos);
+    let client = Client::new(display, Arc::clone(&client_config), conn_client, camera_pos);
     std::thread::spawn(move || {
         let mut server = Server::new(config);
         server.join(conn_server, camera_pos);

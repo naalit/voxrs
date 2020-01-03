@@ -1,26 +1,14 @@
-use num_derive::FromPrimitive;
+use serde::{Deserialize, Serialize};
 
-#[derive(FromPrimitive)]
-pub enum KeyPress {
-    Forward = 17, // W
-    Left = 30, // A
-    Back = 31, // S
-    Right = 32, // D
-
-    Up = 56, // Space
-    Down = 42, // LShift
-
-    Nothing = 0,
-}
-
+#[derive(Serialize, Deserialize)]
 pub struct KeyCodes {
-    forward: u32,
-    left: u32,
-    back: u32,
-    right: u32,
+    pub forward: u32,
+    pub left: u32,
+    pub back: u32,
+    pub right: u32,
 
-    up: u32,
-    down: u32,
+    pub up: u32,
+    pub down: u32,
 }
 
 pub const DEFAULT_KEY_CODES: KeyCodes = KeyCodes {

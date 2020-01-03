@@ -23,16 +23,18 @@ struct Camera {
     rx: f32,
     ry: f32,
     moving: Vec3, // x is forward, y is up, z is right
+    config: Arc<ClientConfig>,
 }
 
 impl Camera {
-    pub fn new(pos: Point3<f32>) -> Camera {
+    pub fn new(pos: Point3<f32>, config: Arc<ClientConfig>) -> Camera {
         Camera {
             pos,
             dir: Vec3::new(0.0, 0.0, 1.0),
             rx: 0.0,
             ry: 0.0,
             moving: Vec3::new(0.0, 0.0, 0.0),
+            config,
         }
     }
 
@@ -52,9 +54,9 @@ impl Camera {
                 state: glutin::ElementState::Pressed,
                 ..
             }) => {
-                match num_traits::FromPrimitive::from_u32(scancode).unwrap_or(KeyPress::Nothing) {
-                    KeyPress::Forward => self.moving.x = 1.0,
-                    KeyPress::Back => self.moving.x = -1.0,
+                match scancode {
+                    x if x == self.config.keycodes.forward => self.moving.x = 1.0,
+                    x if x == self.config.keycodes.back => self.moving.x = -1.0,
                     _ => (),
                 }
             }
@@ -63,9 +65,8 @@ impl Camera {
                 state: glutin::ElementState::Released,
                 ..
             }) => {
-                match num_traits::FromPrimitive::from_u32(scancode).unwrap_or(KeyPress::Nothing) {
-                    KeyPress::Forward | KeyPress::Back => self.moving.x = 0.0,
-                    _ => (),
+                if scancode == self.config.keycodes.forward || scancode == self.config.keycodes.back {
+                    self.moving.x = 0.0;
                 }
             }
             _ => (),
@@ -76,9 +77,8 @@ impl Camera {
         &mut self,
         delta: f64,
         resolution: (u32, u32),
-        player: &mut np::object::Body<f32>,
+        player: &mut np::object::RigidBody<f32>,
     ) {
-        let player = player.downcast_mut::<np::object::RigidBody<f32>>().unwrap();
         player.apply_force(
             0,
             &np::algebra::Force3::new(self.dir * self.moving.x * 50.0, Vec3::zeros()),
@@ -233,18 +233,10 @@ pub struct Client {
 impl Client {
     pub fn new(
         display: Display,
-        game_config: Arc<GameConfig>,
+        config: Arc<ClientConfig>,
         conn: Connection,
         player: Vec3,
     ) -> Self {
-        let config = Arc::new(ClientConfig {
-            mesher: Box::new(Greedy),
-            wireframe: false,
-            batch_size: 16,
-            keycodes: DEFAULT_KEY_CODES,
-            game_config,
-        });
-
         let (to, from_them) = channel();
         let (to_them, from) = channel();
         let two = Arc::clone(&config);
@@ -265,7 +257,7 @@ impl Client {
         let player_c_handle = physics.colliders.insert(player_collider);
 
         Client {
-            camera: Camera::new(player.into()),
+            camera: Camera::new(player.into(), config.clone()),
             chunks: HashMap::with_capacity(config.game_config.draw_chunks.pow(3) / 2),
             meshes: HashMap::with_capacity(config.game_config.draw_chunks.pow(3) / 2),
             colliders: HashMap::with_capacity(config.game_config.draw_chunks.pow(3) / 2),
@@ -430,7 +422,7 @@ impl Client {
         camera.update(
             delta,
             resolution,
-            self.physics.bodies.get_mut(self.player_handle).unwrap(),
+            self.physics.bodies.rigid_body_mut(self.player_handle).unwrap(),
         );
         self.camera = camera;
 
