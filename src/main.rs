@@ -20,6 +20,7 @@ mod world;
 mod mesh;
 mod server;
 mod terrain;
+mod physics;
 
 use client::*;
 use common::*;

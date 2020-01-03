@@ -15,7 +15,7 @@ impl Gen {
     }
 
     pub fn gen(&self, pos: IVec3) -> Chunk {
-        let start = pos.map(|x| x as f32 * CHUNK_SIZE);
+        let start = pos.map(|x| x * CHUNK_SIZE as i32);
 
         let chunk_heightmap = (0..CHUNK_SIZE as usize)
             .map(move |x| {
@@ -32,28 +32,26 @@ impl Gen {
             .collect::<Vec<_>>();
 
         // The whole chunk is above the ground, so we don't need to bother
-        if start.y > 0.0 && start.y > chunk_heightmap.iter().flatten().max_by_key(|x| x.ceil() as i32).unwrap().ceil() {
+        if start.y > 0 && start.y > chunk_heightmap.iter().flatten().map(|x| x.ceil() as i32).max().unwrap() {
             return Chunk::empty();
         }
 
-        let grid = Chunk::full(&mut |p| {
+        Chunk::full(&|p| {
             let height = chunk_heightmap[p.x][p.z]; //3.0 + 4.0 * self.noise.get([(start.x as f64 + x as f64) * 0.01, (start.z as f64 + z as f64) * 0.01]) as f32;
-            let y = p.y as f32 + start.y;
-            if y == height.ceil() {
+            let y = p.y as i32 + start.y;
+            if y == height.ceil() as i32 {
                 Material::Grass
-            } else if y < height
-                && y > height - 3.0
+            } else if y < height.ceil() as i32
+                && y > height as i32 - 3
             {
                 Material::Dirt
-            } else if y < height {
+            } else if y < height as i32 {
                 Material::Stone
-            } else if y < 0.0 {
+            } else if y < 0 {
                 Material::Water
             } else {
                 Material::Air
             }
-        });
-
-        grid
+        })
     }
 }

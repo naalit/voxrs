@@ -155,7 +155,7 @@ pub fn neighbors(idx: IVec3) -> Vec<IVec3> {
         -IVec3::z(),
         IVec3::z(),
     ]
-    .into_iter()
+    .iter()
     .map(|x| idx + x)
     .collect()
 }

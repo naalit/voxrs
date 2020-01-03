@@ -2,6 +2,7 @@ use crate::client_aux::*;
 use crate::common::*;
 use crate::input::*;
 use crate::mesh::*;
+use crate::physics::*;
 use enum_iterator::IntoEnumIterator;
 use glium::glutin::*;
 use glium::*;
@@ -10,6 +11,10 @@ use std::collections::HashMap;
 use std::sync::mpsc::*;
 use std::sync::{Arc, RwLock};
 use std::ops::Deref;
+
+use nphysics3d::object::{DefaultBodySet, DefaultColliderSet};
+use nphysics3d::force_generator::DefaultForceGeneratorSet;
+use nphysics3d::joint::DefaultJointConstraintSet;
 
 #[derive(Clone)]
 struct Camera {
@@ -215,12 +220,13 @@ pub struct Client {
     camera: Camera,
     chunks: HashMap<IVec3, Arc<RwLock<Chunk>>>,
     meshes: HashMap<IVec3, Mesh>,
-    colliders: HashMap<IVec3, np::object::ColliderHandle>,
+    colliders: HashMap<IVec3, np::object::DefaultColliderHandle>,
     display: Display,
     aux: (Sender<Message>, Receiver<ClientMessage>),
     time: f64,
-    world: np::world::World<f32>,
-    player_handle: np::object::BodyHandle,
+    physics: Physics,
+    player_handle: np::object::DefaultBodyHandle,
+    player_c_handle: np::object::DefaultColliderHandle,
     config: Arc<ClientConfig>,
 }
 
@@ -235,6 +241,7 @@ impl Client {
             mesher: Box::new(Greedy),
             wireframe: false,
             batch_size: 16,
+            keycodes: DEFAULT_KEY_CODES,
             game_config,
         });
 
@@ -242,19 +249,20 @@ impl Client {
         let (to_them, from) = channel();
         let two = Arc::clone(&config);
         std::thread::spawn(move || client_aux_thread(conn, (to_them, from_them), player, two));
-        let mut world = np::world::World::new();
-        world.set_gravity(Vec3::y() * -9.81);
+
+        let mut physics = Physics::new();
 
         let player_shape = nc::shape::ShapeHandle::new(nc::shape::Capsule::new(0.65, 0.25));
-        let player_collider = np::object::ColliderDesc::new(player_shape)
-            .name("player".to_string())
-            .margin(0.05);
         let player_handle = np::object::RigidBodyDesc::new()
-            .collider(&player_collider)
             .translation(player)
             .mass(90.0) // In kg, and this person is 2 meters tall
-            .build(&mut world)
-            .handle();
+            .build();
+        let player_handle = physics.bodies.insert(player_handle);
+        let player_collider = np::object::ColliderDesc::new(player_shape)
+            .margin(0.05)
+            .build(np::object::BodyPartHandle(player_handle,0))
+            ;
+        let player_c_handle = physics.colliders.insert(player_collider);
 
         Client {
             camera: Camera::new(player.into()),
@@ -264,8 +272,9 @@ impl Client {
             display,
             aux: (to, from),
             time: 0.0,
-            world,
+            physics,
             player_handle,
+            player_c_handle,
             config,
         }
     }
@@ -375,7 +384,7 @@ impl Client {
             .into();
 
         if self.meshes.len() != 0 {
-            self.world.step(); // TODO: make timestep match delta?
+            self.physics.step(); // TODO: make timestep match delta?
         }
 
         let mut camera = self.camera.clone(); // Because we can't borrow self.camera in the closure
@@ -402,8 +411,8 @@ impl Client {
                     } => {
                         if let Some(p) = self.trace(self.pos(), self.camera.dir, 16.0) {
                             let b = p.cell + p.normal.map(|x| x as i32);
-                            let iso1 = self.world.rigid_body(self.player_handle).unwrap().position();
-                            let shape1 = self.world.collider_world().body_colliders(self.player_handle).next().unwrap().shape();
+                            let iso1 = self.physics.bodies.rigid_body(self.player_handle).unwrap().position();
+                            let shape1 = self.physics.colliders.get(self.player_c_handle).unwrap().shape();
                             let shape2 = nc::shape::Cuboid::new(Vec3::repeat(0.5));
                             let iso2 = na::Isometry3::from_parts(na::Translation::from(b.map(|x| x as f32 + 0.5)), na::UnitQuaternion::new_normalize(na::Quaternion::identity()));
                             let d = nc::query::distance(iso1, shape1.deref(), &iso2, &shape2);
@@ -421,7 +430,7 @@ impl Client {
         camera.update(
             delta,
             resolution,
-            self.world.body_mut(self.player_handle).unwrap(),
+            self.physics.bodies.get_mut(self.player_handle).unwrap(),
         );
         self.camera = camera;
 
@@ -502,7 +511,7 @@ impl Client {
         }
 
         if let Some(c) = self.colliders.remove(&chunk) {
-            self.world.remove_colliders(&[c]);
+            self.physics.colliders.remove(c);
         }
 
         let verts = self
@@ -525,9 +534,10 @@ impl Client {
 
             let chunk_collider = np::object::ColliderDesc::new(chunk_shape)
                 .translation(chunk.map(|x| x as f32) * CHUNK_SIZE)
-                .build_with_parent(np::object::BodyPartHandle::ground(), &mut self.world)
-                .unwrap();
-            self.colliders.insert(chunk, chunk_collider.handle());
+                .build(self.physics.ground)
+                ;
+            let handle = self.physics.colliders.insert(chunk_collider);
+            self.colliders.insert(chunk, handle);
         }
 
         let mesh = Mesh::new(
@@ -543,8 +553,7 @@ impl Client {
         Some(())
     }
 
-    /// Load a bunch of chunks at once. Prunes the root as well
-    /// Uploads everything to the GPU
+    /// Load and mesh a bunch of chunks at once. Prunes unneeded ones as well.
     pub fn load_chunks(&mut self, chunks: ClientMessage) {
         self.prune_chunks();
 
@@ -553,9 +562,10 @@ impl Client {
             if let Some(chunk_shape) = s {
                 let chunk_collider = np::object::ColliderDesc::new(chunk_shape)
                     .translation(i.map(|x| x as f32) * CHUNK_SIZE)
-                    .build_with_parent(np::object::BodyPartHandle::ground(), &mut self.world)
-                    .unwrap();
-                self.colliders.insert(i, chunk_collider.handle());
+                    .build(self.physics.ground)
+                    ;
+                let handle = self.physics.colliders.insert(chunk_collider);
+                self.colliders.insert(i, handle);
             }
 
             let mesh = Mesh::new(
@@ -578,7 +588,7 @@ impl Client {
         self.chunks.remove(&idx);
         self.meshes.remove(&idx);
         if let Some(handle) = self.colliders.remove(&idx) {
-            self.world.remove_colliders(&[handle]);
+            self.physics.colliders.remove(handle);
         }
     }
 
@@ -605,22 +615,22 @@ impl Client {
     pub fn trace(&self, ro: Vec3, rd: Vec3, max_t: f32) -> Option<Intersection> {
         let ray = nc::query::Ray::new(ro.into(), rd);
 
-        let g = nc::world::CollisionGroups::default();
-        let it = self.world.collider_world().interferences_with_ray(&ray, &g);
+        let g = nc::pipeline::object::CollisionGroups::default();
+        let it = self.physics.geom.interferences_with_ray(&self.physics.colliders, &ray, &g);
 
-        let first = it.filter(|x| x.0.name() != "player").min_by(|a, b| {
-            a.1.toi
-                .partial_cmp(&b.1.toi)
+        let first = it.filter(|x| x.0 != self.player_c_handle).min_by(|a, b| {
+            a.2.toi
+                .partial_cmp(&b.2.toi)
                 .unwrap_or(std::cmp::Ordering::Equal)
         })?;
-        let pos = ro + first.1.toi * rd;
+        let pos = ro + first.2.toi * rd;
 
-        if first.1.toi <= max_t {
+        if first.2.toi <= max_t {
             Some(Intersection {
                 pos,
-                cell: (pos - 0.1 * first.1.normal).map(|x| x as i32 - if x < 0.0 { 1 } else { 0 }),
-                t: first.1.toi,
-                normal: first.1.normal,
+                cell: (pos - 0.1 * first.2.normal).map(|x| x as i32 - if x < 0.0 { 1 } else { 0 }),
+                t: first.2.toi,
+                normal: first.2.normal,
             })
         } else {
             None

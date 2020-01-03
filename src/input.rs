@@ -12,3 +12,23 @@ pub enum KeyPress {
 
     Nothing = 0,
 }
+
+pub struct KeyCodes {
+    forward: u32,
+    left: u32,
+    back: u32,
+    right: u32,
+
+    up: u32,
+    down: u32,
+}
+
+pub const DEFAULT_KEY_CODES: KeyCodes = KeyCodes {
+    forward: 17, // W
+    left: 30, // A
+    back: 31, // S
+    right: 32, // D
+
+    up: 56, // Space
+    down: 42, // LShift
+};

@@ -253,7 +253,7 @@ impl Server {
                     r
                 };
                 // If the refcount is zero, nobody's using it so we can unload it
-                if r <= 0 {
+                if r == 0 {
                     // TODO tell chunk thread to unload this chunk
                     world.remove_chunk(&i);
                     self.refs.remove(&i);

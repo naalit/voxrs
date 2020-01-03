@@ -14,5 +14,7 @@ pub struct ClientConfig {
     pub wireframe: bool,
     pub batch_size: usize, // The number of chunks to mesh per batch
 
+    pub keycodes: crate::input::KeyCodes,
+
     pub game_config: Arc<GameConfig>,
 }
