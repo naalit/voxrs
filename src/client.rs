@@ -222,7 +222,7 @@ pub struct Client {
     meshes: HashMap<IVec3, Mesh>,
     colliders: HashMap<IVec3, np::object::DefaultColliderHandle>,
     display: Display,
-    aux: (Sender<Message>, Receiver<ClientMessage>),
+    aux: (Sender<Message>, Receiver<Option<ClientMessage>>),
     time: f64,
     physics: Physics,
     player_handle: np::object::DefaultBodyHandle,
@@ -375,7 +375,7 @@ impl Client {
             .unwrap()
             .into();
 
-        if self.meshes.len() != 0 {
+        if !self.meshes.is_empty() {
             self.physics.step(); // TODO: make timestep match delta?
         }
 
@@ -428,7 +428,7 @@ impl Client {
 
         if let Ok(chunks) = self.aux.1.try_recv() {
             // Only load chunks once per frame
-            self.load_chunks(chunks);
+            self.load_chunks(chunks.unwrap());
         }
         self.aux.0.send(Message::PlayerMove(self.pos())).unwrap();
 
@@ -466,6 +466,13 @@ impl Client {
 
             target.finish().unwrap();
         }
+
+        self.aux.0.send(Message::Leave).unwrap();
+        while let Ok(m) = self.aux.1.recv() {
+            if m.is_none() {
+                break;
+            }
+        }
     }
 
     pub fn set_block(&mut self, loc: IVec3, new: Material) {
@@ -474,6 +481,10 @@ impl Client {
 
         let chunk_rc = self.chunks.get(&chunk).unwrap();
         chunk_rc.write().unwrap().set_block(in_chunk, new);
+
+        println!("Client setting {:?} to {:?}", loc, new);
+
+        self.aux.0.send(Message::SetBlock(loc, new)).unwrap();
 
         self.remesh(chunk);
         for d in 0..3 {
@@ -515,7 +526,7 @@ impl Client {
             .mesher
             .mesh(&chunk_rc.read().unwrap(), neighbors, true);
 
-        if verts.len() != 0 {
+        if !verts.is_empty() {
             let v_physics: Vec<_> = verts.iter().map(|x| na::Point3::from(x.pos)).collect();
             let i_physics: Vec<_> = (0..v_physics.len() / 3)
                 .map(|x| na::Point3::new(x * 3, x * 3 + 1, x * 3 + 2))

@@ -43,8 +43,8 @@ impl Mesh {
     ) -> Self {
         let c = if new { 2.0 } else { 0.0 };
 
-        let empty = verts.len() == 0;
-        let empty_p2 = verts_p2.len() == 0;
+        let empty = verts.is_empty();
+        let empty_p2 = verts_p2.is_empty();
 
         let model = Isometry3::from_parts(
             Translation::from(loc),
@@ -202,10 +202,10 @@ fn culled(grid: &Chunk, neighbors: Vec<Arc<RwLock<Chunk>>>, phase2: bool) -> Vec
 
         // The faces that need to be drawn
         let mut culled = grid.cull_faces(d, (&fb.0.read().unwrap(), &fb.1.read().unwrap()), phase2);
-        if culled.len() == 0 { continue; }
+        if culled.is_empty() { continue; }
 
         // The actual sweeping
-        for d_i in 0..CHUNK_SIZE as usize + 1 {
+        for d_i in 0..=CHUNK_SIZE as usize {
             let culled = &mut culled[d_i];
             // Generate mesh
             for u_i in 0..CHUNK_SIZE as usize {
@@ -214,7 +214,7 @@ fn culled(grid: &Chunk, neighbors: Vec<Arc<RwLock<Chunk>>>, phase2: bool) -> Vec
                     if b != Material::Air {
                         // Add this face to the mesh
                         let left = (u_i, v_i);
-                        let mut right = (u_i + 1, v_i + 1);
+                        let right = (u_i + 1, v_i + 1);
 
                         // Generate vertices
 
@@ -281,10 +281,10 @@ fn greedy(grid: &Chunk, neighbors: Vec<Arc<RwLock<Chunk>>>, phase2: bool) -> Vec
 
         // The faces that need to be drawn
         let mut culled = grid.cull_faces(d, (&fb.0.read().unwrap(), &fb.1.read().unwrap()), phase2);
-        if culled.len() == 0 { continue; }
+        if culled.is_empty() { continue; }
 
         // The actual sweeping
-        for d_i in 0..CHUNK_SIZE as usize + 1 {
+        for d_i in 0..=CHUNK_SIZE as usize {
             let culled = &mut culled[d_i];
             // Generate mesh
             for u_i in 0..CHUNK_SIZE as usize {

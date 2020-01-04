@@ -56,10 +56,10 @@ impl Server {
         for i in wait {
             self.orders
                 .entry(i)
-                .or_insert_with(|| Vec::new())
+                .or_insert_with(Vec::new)
                 .push((new_player.id, Rc::clone(&new_player.conn)));
         }
-        if load.len() > 0 {
+        if !load.is_empty() {
             new_player.conn.send(Message::Chunks(load)).unwrap();
         }
         self.players.push(new_player);
@@ -88,21 +88,25 @@ impl Server {
                                 }
                                 _ => return None,
                             },
+                            Message::SetBlock(p, b) => {
+                                println!("Setting block {:?} to {:?}", p, b);
+                                self.world.write().unwrap().set_block(p.map(|x| x as f32), b);
+                            }
                             _ => panic!("Hey, a client sent a message {:?}", m),
                         }
                     }
                     let (wait, load) = self.load_chunk_diff(p.pos, np);
                     //p.to_send.append(&mut wait);
-                    if !change && (wait.len() != 0 || load.len() != 0) {
+                    if !change && (!wait.is_empty() || !load.is_empty()) {
                         change = true;
                     }
                     for i in wait {
                         self.orders
                             .entry(i)
-                            .or_insert_with(|| Vec::new())
+                            .or_insert_with(Vec::new)
                             .push((p.id, Rc::clone(&p.conn)));
                     }
-                    if load.len() > 0 {
+                    if !load.is_empty() {
                         p.conn.send(Message::Chunks(load)).unwrap();
                     }
                     p.pos = np;
@@ -154,6 +158,24 @@ impl Server {
                     }
                     _ => panic!("Chunk thread sent {:?}", m),
                 }
+            }
+        }
+        self.unload_all();
+        for p in self.players {
+            p.conn.send(Message::Leave);
+        }
+    }
+
+    fn unload_all(&mut self) {
+        let mut m = HashMap::new();
+        std::mem::swap(&mut self.world.write().unwrap().chunks, &mut m);
+        for (loc, chunk) in m {
+            self.ch.0.send(ChunkMessage::UnloadChunk(loc, chunk)).unwrap();
+        }
+        self.ch.0.send(ChunkMessage::Done).unwrap();
+        while let Ok(m) = self.ch.1.recv() {
+            if let ChunkMessage::Done = m {
+                break;
             }
         }
     }
@@ -219,7 +241,7 @@ impl Server {
             return (Vec::new(), Vec::new());
         }
 
-        println!("Loading chunks around {:?}", new);
+        // println!("Loading chunks around {:?}", new);
 
         let mut around_old = HashSet::new();
         let mut around_new = HashSet::new();
@@ -255,7 +277,9 @@ impl Server {
                 // If the refcount is zero, nobody's using it so we can unload it
                 if r == 0 {
                     // TODO tell chunk thread to unload this chunk
-                    world.remove_chunk(&i);
+                    if let Some(chunk) = world.remove_chunk(&i) {
+                        self.ch.0.send(ChunkMessage::UnloadChunk(i, chunk)).unwrap();
+                    }
                     self.refs.remove(&i);
                 }
             } else {

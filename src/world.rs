@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
 pub struct World {
-    chunks: HashMap<IVec3, Chunk>,
+    pub chunks: HashMap<IVec3, Chunk>,
 }
 
 pub type ArcWorld = Arc<RwLock<World>>;
@@ -28,8 +28,8 @@ impl World {
     pub fn add_chunk(&mut self, k: IVec3, v: Chunk) {
         self.chunks.insert(k, v);
     }
-    pub fn remove_chunk(&mut self, k: &IVec3) {
-        self.chunks.remove(k);
+    pub fn remove_chunk(&mut self, k: &IVec3) -> Option<Chunk> {
+        self.chunks.remove(k)
     }
     pub fn block(&self, k: Vec3) -> Option<Material> {
         let chunk = world_to_chunk(k);

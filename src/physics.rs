@@ -22,13 +22,13 @@ pub struct Physics {
 
 impl Physics {
     pub fn new() -> Self {
-        let mut mech = DefaultMechanicalWorld::new(Vector3::new(0.0, -9.81, 0.0));
-        let mut geom = DefaultGeometricalWorld::new();
+        let mech = DefaultMechanicalWorld::new(Vector3::new(0.0, -9.81, 0.0));
+        let geom = DefaultGeometricalWorld::new();
 
         let mut bodies = DefaultBodySet::new();
-        let mut colliders = DefaultColliderSet::new();
-        let mut constraints = DefaultJointConstraintSet::new();
-        let mut generators = DefaultForceGeneratorSet::new();
+        let colliders = DefaultColliderSet::new();
+        let constraints = DefaultJointConstraintSet::new();
+        let generators = DefaultForceGeneratorSet::new();
 
         let ground = bodies.insert(np::object::Ground::new());
         let ground = BodyPartHandle(ground, 0);

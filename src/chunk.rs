@@ -1,6 +1,7 @@
 use crate::common::*;
+use serde::{Serialize, Deserialize};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Chunk {
     /// Indexed by `blocks[y * CHUNK_SIZE * CHUNK_SIZE + x * CHUNK_SIZE + z]` for cache friendliness
     Flat(Vec<Material>),

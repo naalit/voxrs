@@ -29,6 +29,11 @@ use server::*;
 use std::fs::File;
 use std::io::Write;
 
+pub const APP_INFO: app_dirs2::AppInfo = app_dirs2::AppInfo {
+    name: "voxrs",
+    author: "Lorxu",
+};
+
 fn main() {
     // Wayland doesn't allow cursor grabbing
     let events_loop: glutin::EventsLoop = glutin::os::unix::EventsLoopExt::new_x11().unwrap();
@@ -40,11 +45,7 @@ fn main() {
     display.gl_window().window().grab_cursor(true).unwrap();
     display.gl_window().window().hide_cursor(true);
 
-    let app_info = app_dirs2::AppInfo {
-        name: "voxrs",
-        author: "Lorxu",
-    };
-    let mut config_file = app_dirs2::app_root(app_dirs2::AppDataType::UserConfig, &app_info).unwrap();
+    let mut config_file = app_dirs2::app_root(app_dirs2::AppDataType::UserConfig, &APP_INFO).unwrap();
     config_file.push("config.ron");
     let client_config = if config_file.exists() {
         ron::de::from_reader(File::open(config_file).unwrap()).expect("bad config file")

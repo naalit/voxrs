@@ -18,7 +18,8 @@ pub type ClientMessage = Vec<(
 
 pub fn client_aux_thread(
     server: Connection,
-    client: (Sender<ClientMessage>, Receiver<Message>),
+    // A None ClientMessage is a response to Message::Leave, saying we're ready to go.
+    client: (Sender<Option<ClientMessage>>, Receiver<Message>),
     mut player: Vec3,
     config: Arc<ClientConfig>,
 ) {
@@ -31,16 +32,34 @@ pub fn client_aux_thread(
     let mut counter = 0;
 
     loop {
-        if let Ok(m) = client.1.try_recv() {
-            if let Message::PlayerMove(p) = m {
-                player = p;
+        if let Ok(mut m) = client.1.try_recv() {
+            loop {
+                match m {
+                    Message::PlayerMove(p) => player = p,
+                    Message::SetBlock(p, b) => {
+                        println!("Client aux thread setting {:?} to {:?}", p, b);
+                        server.send(Message::SetBlock(p, b)).expect("Disconnected from server");
+                    }
+                    Message::Leave => {
+                        server.send(Message::Leave).expect("Disconnected from server");
+                        loop {
+                            if let Some(Message::Leave) = server.recv() {
+                                break;
+                            }
+                        }
+                        return;
+                    }
+                    x => panic!("Aux thread recieved {:?} from the client thread!", x),
+                }
+                if let Ok(q) = client.1.try_recv() {
+                    m = q;
+                } else {
+                    break;
+                }
             }
         } else {
             // Sync up with the client; we don't want to send more than one batch per frame
             continue;
-        }
-        while let Ok(Message::PlayerMove(p)) = client.1.try_recv() {
-            player = p;
         }
         if timer.elapsed_ms() > 50 {
             server
@@ -49,13 +68,13 @@ pub fn client_aux_thread(
             timer.restart();
         }
 
-        if indices.len() != 0 && counter >= 10 {
+        if !indices.is_empty() && counter >= 10 {
             let c = world_to_chunk(player);
             // println!("Rechunking");
             // let timer = stopwatch::Stopwatch::start_new();
 
             indices.sort_by_key(|x| ((chunk_to_world(*x) - player).norm() * 10.0) as i32);
-            while indices.len() != 0
+            while !indices.is_empty()
                 && (indices.last().unwrap() - c).map(|x| x as f32).norm()
                     > config.game_config.draw_chunks as f32
             {
@@ -68,7 +87,7 @@ pub fn client_aux_thread(
             counter = 0;
         }
 
-        if indices.len() != 0 {
+        if !indices.is_empty() {
             // let timer = stopwatch::Stopwatch::start_new();
             let meshed: Vec<_> = indices
                 .iter()
@@ -96,7 +115,7 @@ pub fn client_aux_thread(
                     )
                 })
                 .map(|(loc, mesh, mesh_p2, chunk)| {
-                    if mesh.len() != 0 {
+                    if !mesh.is_empty() {
                         let v_physics: Vec<_> =
                             mesh.iter().map(|x| na::Point3::from(x.pos)).collect();
                         let i_physics: Vec<_> = (0..v_physics.len() / 3)
@@ -113,7 +132,7 @@ pub fn client_aux_thread(
                 .collect();
             let r = meshed.iter().map(|x| x.0).collect::<HashSet<_>>();
             indices.retain(|x| !r.contains(x));
-            client.0.send(meshed).unwrap();
+            client.0.send(Some(meshed)).unwrap();
             // println!("Meshing took {} ms/chunk", timer.elapsed_ms() as f64 / r.len() as f64);
             counter += 1;
         }

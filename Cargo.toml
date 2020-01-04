@@ -21,3 +21,4 @@ ncollide3d = "*"
 ron = "*"
 serde = { version = "*", features = ["derive", "rc"] }
 app_dirs2 = "2.0"
+bincode = "*"

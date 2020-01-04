@@ -28,18 +28,39 @@ impl ChunkThread {
     }
 
     pub fn run(self) {
+        let mut chunks_path = app_dirs2::app_root(app_dirs2::AppDataType::UserData, &crate::APP_INFO).unwrap();
+        chunks_path.push("chunks");
+        if !chunks_path.exists() {
+            std::fs::create_dir_all(&chunks_path).unwrap();
+        }
+
         let mut to_load = Vec::new();
 
         loop {
-            if to_load.len() != 0 {
+            if !to_load.is_empty() {
                 // let timer = Stopwatch::start_new();
                 let ret: Vec<_> = {
                     let mut world = self.world.write().unwrap();
                     to_load
                         .drain(0..self.config.batch_size.min(to_load.len()))
-                        .map(|x| {
-                            world.add_chunk(x, self.gen.gen(x));
-                            x
+                        .map(|p: IVec3| {
+                            let mut path = chunks_path.clone();
+                            path.push(format!("{},{},{}", p.x, p.y, p.z));
+
+                            let chunk = if path.exists() {
+                                use std::fs::File;
+                                use std::io::Read;
+
+                                let mut f = File::open(path).unwrap();
+                                let mut buf = Vec::new();
+                                f.read_to_end(&mut buf).unwrap();
+                                bincode::deserialize(&buf).unwrap()
+                            } else {
+                                self.gen.gen(p)
+                            };
+
+                            world.add_chunk(p, chunk);
+                            p
                         })
                         .collect()
                 };
@@ -74,7 +95,7 @@ impl ChunkThread {
                 if !connected {
                     break;
                 }
-                if sort.len() != 0 {
+                if !sort.is_empty() {
                     // let timer = Stopwatch::start_new();
                     to_load.retain(|x| {
                         sort.iter().any(|y| {
@@ -94,8 +115,15 @@ impl ChunkThread {
                     Ok(ChunkMessage::LoadChunks(mut chunks)) => {
                         to_load.append(&mut chunks);
                     }
-                    Ok(ChunkMessage::UnloadChunk(_, _)) => {
-                        // TODO save chunk
+                    Ok(ChunkMessage::UnloadChunk(p, chunk)) => {
+                        use std::fs::File;
+                        use std::io::Write;
+
+                        let mut path = chunks_path.clone();
+                        path.push(format!("{},{},{}", p.x, p.y, p.z));
+                        let mut f = File::create(path).unwrap();
+
+                        f.write_all(&bincode::serialize(&chunk).unwrap()).unwrap();
                     }
                     Ok(ChunkMessage::Players(_)) => {}
                     _ => break,

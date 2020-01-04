@@ -74,11 +74,13 @@ impl Connection {
 pub enum Message {
     PlayerMove(Vec3),
     Chunks(Vec<(IVec3, Chunk)>),
+    SetBlock(IVec3, Material),
     Leave,
 }
 
 #[derive(Debug)]
 pub enum ChunkMessage {
+    Done,
     LoadChunks(Vec<IVec3>),
     // Chunks(Vec<(IVec3, Chunk)>),
     UnloadChunk(IVec3, Chunk),

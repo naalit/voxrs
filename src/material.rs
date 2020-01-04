@@ -1,6 +1,7 @@
 use enum_iterator::IntoEnumIterator;
+use serde::{Serialize, Deserialize};
 
-#[derive(IntoEnumIterator, PartialEq, Clone, Copy, Debug)]
+#[derive(IntoEnumIterator, PartialEq, Clone, Copy, Debug, Serialize, Deserialize)]
 #[repr(u16)]
 pub enum Material {
    Air = 0,
