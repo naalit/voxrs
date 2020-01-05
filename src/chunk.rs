@@ -15,7 +15,7 @@ impl Chunk {
     pub fn empty() -> Self {
         Chunk::Runs(vec![((CHUNK_U * CHUNK_U * CHUNK_U) as u16, Material::Air)])
     }
-    pub fn full(f: &Fn(UVec3) -> Material) -> Self {
+    pub fn full(f: &impl Fn(UVec3) -> Material) -> Self {
         let mut runs: Vec<(u16, Material)> = Vec::new();
         let mut blocks: Vec<Material> = Vec::new();
         for y in 0..CHUNK_U {
@@ -92,7 +92,7 @@ impl Chunk {
             let mut blocks = Vec::new();
             // We can do this because the flat array is in the same order as the runs
             for (len, b) in runs {
-                blocks.extend((0..*len).map(|_| b.clone()));
+                blocks.extend((0..*len).map(|_| *b));
             }
             *self = Chunk::Flat(blocks);
         }
@@ -158,7 +158,7 @@ impl Chunk {
         };
 
         let mut culled = Vec::new();
-        for d_i in 0..CHUNK_U + 1 {
+        for d_i in 0..=CHUNK_U {
             culled.push(Vec::new());
             for u_i in 0..CHUNK_U {
                 culled[d_i].push(Vec::new());

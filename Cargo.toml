@@ -5,7 +5,7 @@ authors = ["Lorxu <sam@dirkback.com>"]
 edition = "2018"
 
 [dependencies]
-glium = "0.24.0"
+glium = "0.25.1"
 stopwatch = "*"
 rayon = "*"
 glsl-include = "*"
@@ -23,3 +23,4 @@ serde = { version = "*", features = ["derive", "rc"] }
 app_dirs2 = "2.0"
 bincode = "*"
 zstd = "*"
+glium-glyph = "0.6.0"

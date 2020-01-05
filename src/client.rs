@@ -11,6 +11,9 @@ use std::ops::Deref;
 use std::sync::mpsc::*;
 use std::sync::{Arc, RwLock};
 
+
+            use glium_glyph::glyph_brush::{rusttype::Font, Section};
+    use glium_glyph::GlyphBrush;
 #[derive(Clone)]
 struct Camera {
     pos: Point3<f32>,
@@ -227,7 +230,7 @@ impl<'a> DrawStuff<'a> {
     }
 }
 
-pub struct Client {
+pub struct Client<'font, 'p> {
     camera: Camera,
     chunks: HashMap<IVec3, Arc<RwLock<Chunk>>>,
     meshes: HashMap<IVec3, Mesh>,
@@ -239,9 +242,11 @@ pub struct Client {
     player_handle: np::object::DefaultBodyHandle,
     player_c_handle: np::object::DefaultColliderHandle,
     config: Arc<ClientConfig>,
+    inventory: Vec<(Material, usize)>,
+    glyph_brush: GlyphBrush<'font, 'p>,
 }
 
-impl Client {
+impl<'font, 'p> Client<'font, 'p> {
     pub fn new(
         display: Display,
         config: Arc<ClientConfig>,
@@ -266,6 +271,11 @@ impl Client {
             .build(np::object::BodyPartHandle(player_handle, 0));
         let player_c_handle = physics.colliders.insert(player_collider);
 
+        let dejavu: &[u8] = include_bytes!("../DejaVuSansMono-Bold.ttf");
+        let fonts = vec![Font::from_bytes(dejavu).unwrap()];
+
+        let mut glyph_brush = GlyphBrush::new(&display, fonts);
+
         Client {
             camera: Camera::new(player.into(), config.clone()),
             chunks: HashMap::with_capacity(config.game_config.draw_chunks.pow(3) / 2),
@@ -278,6 +288,8 @@ impl Client {
             player_handle,
             player_c_handle,
             config,
+            inventory: Vec::new(),
+            glyph_brush,
         }
     }
 
@@ -379,6 +391,20 @@ impl Client {
                 },
             )
             .unwrap();
+
+        let mut start = 40.0;
+        for (m, n) in &self.inventory {
+            self.glyph_brush.queue(Section {
+                text: &format!("{:?} x {}", m, n),
+                bounds: (resolution.0 as f32, resolution.1 as f32 / 2.0),
+                screen_position: (0.0, start),
+                scale: glium_glyph::glyph_brush::rusttype::Scale::uniform(if start == 40.0 { start += 10.0; 20.0 } else { 16.0 }),
+                ..Section::default()
+            });
+            start += 20.0;
+        }
+
+        self.glyph_brush.draw_queued(&self.display, target);
     }
 
     pub fn update(&mut self, evloop: &mut EventsLoop, delta: f64) -> bool {
@@ -409,7 +435,28 @@ impl Client {
                         state: glutin::ElementState::Pressed,
                     } => {
                         if let Some(p) = self.trace(self.pos(), self.camera.dir, 16.0) {
-                            self.set_block(p.cell, Material::Air);
+                            let old = self.set_block(p.cell, Material::Air);
+                            if let Some(x) = self.inventory.iter_mut().find(|x| x.0 == old) {
+                                x.1 += 1;
+                            } else {
+                                self.inventory.push((old, 1));
+                            }
+                        }
+                    }
+                    glutin::DeviceEvent::MouseWheel {
+                        delta,
+                    } => {
+                        let d = match delta {
+                            glutin::MouseScrollDelta::LineDelta(_, v) => v,
+                            glutin::MouseScrollDelta::PixelDelta(p) => p.y as f32 / resolution.1 as f32,
+                        };
+
+                        if d > 0.0 {
+                            let i = self.inventory.remove(0);
+                            self.inventory.push(i);
+                        } else {
+                            let i = self.inventory.remove(self.inventory.len() - 1);
+                            self.inventory.insert(0, i);
                         }
                     }
                     // Right-click
@@ -437,8 +484,14 @@ impl Client {
                                 na::UnitQuaternion::new_normalize(na::Quaternion::identity()),
                             );
                             let d = nc::query::distance(iso1, shape1.deref(), &iso2, &shape2);
-                            if d > 0.01 {
-                                self.set_block(b, Material::Grass);
+                            if d > 0.01 && !self.inventory.is_empty() {
+                                let m = self.inventory.first_mut().unwrap();
+                                m.1 -= 1;
+                                let m = *m;
+                                if m.1 == 0 {
+                                    self.inventory.remove(0);
+                                }
+                                self.set_block(b, m.0);
                             }
                         }
                     }
@@ -506,11 +559,12 @@ impl Client {
         }
     }
 
-    pub fn set_block(&mut self, loc: IVec3, new: Material) {
+    pub fn set_block(&mut self, loc: IVec3, new: Material) -> Material {
         let chunk = world_to_chunk(loc.map(|x| x as f32));
         let in_chunk = in_chunk(loc.map(|x| x as f32));
 
         let chunk_rc = self.chunks.get(&chunk).unwrap();
+        let old = chunk_rc.read().unwrap().block(in_chunk);
         chunk_rc.write().unwrap().set_block(in_chunk, new);
 
         self.aux.0.send(Message::SetBlock(loc, new)).unwrap();
@@ -528,6 +582,8 @@ impl Client {
                 self.remesh(i);
             }
         }
+
+        old
     }
 
     fn remesh(&mut self, chunk: IVec3) -> Option<()> {
@@ -640,7 +696,7 @@ pub struct Intersection {
     pub normal: Vec3,
 }
 
-impl Client {
+impl Client<'_, '_> {
     pub fn trace(&self, ro: Vec3, rd: Vec3, max_t: f32) -> Option<Intersection> {
         let ray = nc::query::Ray::new(ro.into(), rd);
 

@@ -1,4 +1,3 @@
-use crate::chunk::*;
 use crate::mesh::Mesher;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
