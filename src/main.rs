@@ -2,8 +2,8 @@
 extern crate glium;
 extern crate glsl_include;
 pub extern crate nalgebra;
-extern crate num_traits;
 extern crate num_derive;
+extern crate num_traits;
 
 use glium::glutin;
 use std::sync::Arc;
@@ -12,15 +12,15 @@ mod chunk;
 mod chunk_thread;
 mod client;
 mod client_aux;
-mod config;
 mod common;
+mod config;
 mod input;
 mod material;
-mod world;
 mod mesh;
+mod physics;
 mod server;
 mod terrain;
-mod physics;
+mod world;
 
 use client::*;
 use common::*;
@@ -45,7 +45,8 @@ fn main() {
     display.gl_window().window().grab_cursor(true).unwrap();
     display.gl_window().window().hide_cursor(true);
 
-    let mut config_file = app_dirs2::app_root(app_dirs2::AppDataType::UserConfig, &APP_INFO).unwrap();
+    let mut config_file =
+        app_dirs2::app_root(app_dirs2::AppDataType::UserConfig, &APP_INFO).unwrap();
     config_file.push("config.ron");
     let client_config = if config_file.exists() {
         ron::de::from_reader(File::open(config_file).unwrap()).expect("bad config file")
@@ -58,6 +59,7 @@ fn main() {
             game_config: Arc::new(GameConfig {
                 draw_chunks: 16,
                 batch_size: 64,
+                save_chunks: true,
             }),
         };
         let s = ron::ser::to_string(&c).unwrap();

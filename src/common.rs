@@ -81,6 +81,7 @@ pub enum Message {
 #[derive(Debug)]
 pub enum ChunkMessage {
     Done,
+    UpdateChunks(Vec<IVec3>),
     LoadChunks(Vec<IVec3>),
     // Chunks(Vec<(IVec3, Chunk)>),
     UnloadChunk(IVec3, Chunk),

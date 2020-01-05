@@ -18,6 +18,10 @@ impl World {
         }
     }
 
+    pub fn contains_chunk(&self, chunk: IVec3) -> bool {
+        self.chunks.contains_key(&chunk)
+    }
+
     pub fn locs(&self) -> std::collections::hash_map::Keys<'_, IVec3, Chunk> {
         self.chunks.keys()
     }
@@ -46,7 +50,7 @@ impl World {
 }
 
 impl Extend<(IVec3, Chunk)> for World {
-    fn extend<T: IntoIterator<Item = (IVec3, Chunk)>> (&mut self, it: T) {
+    fn extend<T: IntoIterator<Item = (IVec3, Chunk)>>(&mut self, it: T) {
         self.chunks.extend(it);
     }
 }

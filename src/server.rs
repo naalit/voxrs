@@ -89,8 +89,10 @@ impl Server {
                                 _ => return None,
                             },
                             Message::SetBlock(p, b) => {
-                                println!("Setting block {:?} to {:?}", p, b);
-                                self.world.write().unwrap().set_block(p.map(|x| x as f32), b);
+                                self.world
+                                    .write()
+                                    .unwrap()
+                                    .set_block(p.map(|x| x as f32), b);
                             }
                             _ => panic!("Hey, a client sent a message {:?}", m),
                         }
@@ -156,6 +158,21 @@ impl Server {
                             conn.send(Message::Chunks(v));
                         }
                     }
+                    ChunkMessage::UpdateChunks(v) => {
+                        let mut batches = HashMap::new();
+                        for i in v {
+                            for p in &self.players {
+                                if (world_to_chunk(p.pos) - i).map(|x| x as f32).norm()
+                                    <= self.config.draw_chunks as f32 {
+                                    batches.entry(p.id).or_insert((p.conn.clone(), Vec::new())).1.push(i);
+                                }
+                            }
+                        }
+                        let world = self.world.read().unwrap();
+                        for (_, (conn, v)) in batches {
+                            conn.send(Message::Chunks(v.into_iter().filter_map(|x| world.chunks.get(&x).cloned().map(|y| (x, y))).collect())).unwrap();
+                        }
+                    }
                     _ => panic!("Chunk thread sent {:?}", m),
                 }
             }
@@ -170,7 +187,10 @@ impl Server {
         let mut m = HashMap::new();
         std::mem::swap(&mut self.world.write().unwrap().chunks, &mut m);
         for (loc, chunk) in m {
-            self.ch.0.send(ChunkMessage::UnloadChunk(loc, chunk)).unwrap();
+            self.ch
+                .0
+                .send(ChunkMessage::UnloadChunk(loc, chunk))
+                .unwrap();
         }
         self.ch.0.send(ChunkMessage::Done).unwrap();
         while let Ok(m) = self.ch.1.recv() {

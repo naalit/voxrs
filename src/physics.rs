@@ -1,12 +1,12 @@
-use nphysics3d::object::DefaultBodyHandle;
-use nphysics3d::object::BodyPartHandle;
 use crate::common::*;
+use nphysics3d::object::BodyPartHandle;
+use nphysics3d::object::DefaultBodyHandle;
 
-use nphysics3d::object::{DefaultBodySet, DefaultColliderSet};
+use nphysics3d as np;
 use nphysics3d::force_generator::DefaultForceGeneratorSet;
 use nphysics3d::joint::DefaultJointConstraintSet;
-use nphysics3d::world::{DefaultMechanicalWorld, DefaultGeometricalWorld};
-use nphysics3d as np;
+use nphysics3d::object::{DefaultBodySet, DefaultColliderSet};
+use nphysics3d::world::{DefaultGeometricalWorld, DefaultMechanicalWorld};
 
 pub struct Physics {
     pub geom: DefaultGeometricalWorld<f32>,

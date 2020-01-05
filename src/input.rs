@@ -13,10 +13,10 @@ pub struct KeyCodes {
 
 pub const DEFAULT_KEY_CODES: KeyCodes = KeyCodes {
     forward: 17, // W
-    left: 30, // A
-    back: 31, // S
-    right: 32, // D
+    left: 30,    // A
+    back: 31,    // S
+    right: 32,   // D
 
-    up: 56, // Space
+    up: 56,   // Space
     down: 42, // LShift
 };

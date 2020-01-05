@@ -37,11 +37,14 @@ pub fn client_aux_thread(
                 match m {
                     Message::PlayerMove(p) => player = p,
                     Message::SetBlock(p, b) => {
-                        println!("Client aux thread setting {:?} to {:?}", p, b);
-                        server.send(Message::SetBlock(p, b)).expect("Disconnected from server");
+                        server
+                            .send(Message::SetBlock(p, b))
+                            .expect("Disconnected from server");
                     }
                     Message::Leave => {
-                        server.send(Message::Leave).expect("Disconnected from server");
+                        server
+                            .send(Message::Leave)
+                            .expect("Disconnected from server");
                         loop {
                             if let Some(Message::Leave) = server.recv() {
                                 break;

@@ -111,7 +111,8 @@ impl Mesh {
         let mut matc = self.model;
         matc.translation.vector.y -= self.c;
         let matc: [[f32; 4]; 4] = *matc.to_homogeneous().as_ref();
-        if self.c > 0.0 && self.empty { // Only do this once
+        if self.c > 0.0 && self.empty {
+            // Only do this once
             self.c -= 0.2;
         }
         if !self.empty_p2 {
@@ -177,7 +178,12 @@ pub enum Mesher {
 
 impl Mesher {
     /// `neighbors` is [-x, +x, -y, +y, -z, +z]
-    pub fn mesh(&self, grid: &Chunk, neighbors: Vec<Arc<RwLock<Chunk>>>, phase2: bool) -> Vec<Vertex> {
+    pub fn mesh(
+        &self,
+        grid: &Chunk,
+        neighbors: Vec<Arc<RwLock<Chunk>>>,
+        phase2: bool,
+    ) -> Vec<Vertex> {
         match self {
             Mesher::Culled => culled(grid, neighbors, phase2),
             Mesher::Greedy => greedy(grid, neighbors, phase2),
@@ -202,7 +208,9 @@ fn culled(grid: &Chunk, neighbors: Vec<Arc<RwLock<Chunk>>>, phase2: bool) -> Vec
 
         // The faces that need to be drawn
         let mut culled = grid.cull_faces(d, (&fb.0.read().unwrap(), &fb.1.read().unwrap()), phase2);
-        if culled.is_empty() { continue; }
+        if culled.is_empty() {
+            continue;
+        }
 
         // The actual sweeping
         for d_i in 0..=CHUNK_SIZE as usize {
@@ -281,7 +289,9 @@ fn greedy(grid: &Chunk, neighbors: Vec<Arc<RwLock<Chunk>>>, phase2: bool) -> Vec
 
         // The faces that need to be drawn
         let mut culled = grid.cull_faces(d, (&fb.0.read().unwrap(), &fb.1.read().unwrap()), phase2);
-        if culled.is_empty() { continue; }
+        if culled.is_empty() {
+            continue;
+        }
 
         // The actual sweeping
         for d_i in 0..=CHUNK_SIZE as usize {
@@ -310,15 +320,11 @@ fn greedy(grid: &Chunk, neighbors: Vec<Arc<RwLock<Chunk>>>, phase2: bool) -> Vec
                         // Add to v
                         for v_i in (v_i + 1)..CHUNK_SIZE as usize {
                             // Sweep across the whole u extent of the current quad to make sure we can extend the whole thing
-                            if (left.0..right.0)
-                                .all(|u_i| culled[u_i][v_i] == b)
-                            {
+                            if (left.0..right.0).all(|u_i| culled[u_i][v_i] == b) {
                                 right.1 += 1;
 
                                 // We don't need to mesh this whole line anymore
-                                (left.0..right.0).for_each(|u_i| {
-                                    culled[u_i][v_i] = Material::Air
-                                });
+                                (left.0..right.0).for_each(|u_i| culled[u_i][v_i] = Material::Air);
                             } else {
                                 break;
                             }

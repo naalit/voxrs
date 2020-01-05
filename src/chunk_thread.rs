@@ -4,6 +4,7 @@ use crate::world::*;
 use std::sync::mpsc::*;
 use std::sync::Arc;
 use stopwatch::Stopwatch;
+use std::collections::HashSet;
 
 pub struct ChunkThread {
     pub gen: Gen,
@@ -28,7 +29,12 @@ impl ChunkThread {
     }
 
     pub fn run(self) {
-        let mut chunks_path = app_dirs2::app_root(app_dirs2::AppDataType::UserData, &crate::APP_INFO).unwrap();
+        let save = self.config.save_chunks;
+
+        let mut to_decorate = HashSet::new();
+
+        let mut chunks_path =
+            app_dirs2::app_root(app_dirs2::AppDataType::UserData, &crate::APP_INFO).unwrap();
         chunks_path.push("chunks");
         if !chunks_path.exists() {
             std::fs::create_dir_all(&chunks_path).unwrap();
@@ -39,7 +45,7 @@ impl ChunkThread {
         loop {
             if !to_load.is_empty() {
                 // let timer = Stopwatch::start_new();
-                let ret: Vec<_> = {
+                let (decorate, mut ret): (Vec<_>, _) = {
                     let mut world = self.world.write().unwrap();
                     to_load
                         .drain(0..self.config.batch_size.min(to_load.len()))
@@ -47,7 +53,7 @@ impl ChunkThread {
                             let mut path = chunks_path.clone();
                             path.push(format!("{},{},{}", p.x, p.y, p.z));
 
-                            let chunk = if path.exists() {
+                            let chunk = if save && path.exists() {
                                 use std::fs::File;
                                 use std::io::Read;
 
@@ -56,19 +62,41 @@ impl ChunkThread {
                                 f.read_to_end(&mut buf).unwrap();
                                 bincode::deserialize(&buf).unwrap()
                             } else {
+                                to_decorate.insert(p);
                                 self.gen.gen(p)
                             };
 
                             world.add_chunk(p, chunk);
                             p
                         })
-                        .collect()
+                        // So it's not lazy and can borrow to_decorate
+                        .collect::<Vec<_>>()
+                        .into_iter()
+                        .partition(|x| to_decorate.contains(x))
                 };
 
-                // let l = ret.len();
-                // println!("Loaded {} chunks", l);
+                let mut modified = Vec::new();
+
+                let s: HashSet<IVec3> = ret.iter().chain(decorate.iter()).cloned().collect();
+
+                for &p in s.iter() {
+                    for n in crate::mesh::neighbors(p) {
+                        if to_decorate.contains(&n) {
+                            let mut world = self.world.write().unwrap();
+                            if crate::mesh::neighbors(n).into_iter().all(|x| world.contains_chunk(x)) {
+                                let m = self.gen.decorate(&mut *world, n);
+                                modified.extend(m.into_iter().filter(|x| !s.contains(x)));
+                                ret.push(n);
+                                to_decorate.remove(&n);
+                            }
+                        }
+                    }
+                }
 
                 self.ch.0.send(ChunkMessage::LoadChunks(ret)).unwrap();
+                if !modified.is_empty() {
+                    self.ch.0.send(ChunkMessage::UpdateChunks(modified)).unwrap();
+                }
 
                 // println!("Loading took {} ms/chunk, {} ms total", timer.elapsed_ms() as f64 / l as f64, timer.elapsed_ms());
 
@@ -96,6 +124,16 @@ impl ChunkThread {
                     break;
                 }
                 if !sort.is_empty() {
+                    for chunk in to_decorate.iter().cloned().collect::<Vec<_>>() {
+                        let in_range = sort.iter().any(|y| {
+                            (world_to_chunk(*y) - chunk).map(|x| x as f32).norm()
+                                <= self.config.draw_chunks as f32
+                        });
+                        if !in_range {
+                            self.world.write().unwrap().remove_chunk(&chunk);
+                            to_decorate.remove(&chunk);
+                        }
+                    }
                     // let timer = Stopwatch::start_new();
                     to_load.retain(|x| {
                         sort.iter().any(|y| {
@@ -119,11 +157,13 @@ impl ChunkThread {
                         use std::fs::File;
                         use std::io::Write;
 
-                        let mut path = chunks_path.clone();
-                        path.push(format!("{},{},{}", p.x, p.y, p.z));
-                        let mut f = File::create(path).unwrap();
+                        if save {
+                            let mut path = chunks_path.clone();
+                            path.push(format!("{},{},{}", p.x, p.y, p.z));
+                            let mut f = File::create(path).unwrap();
 
-                        f.write_all(&bincode::serialize(&chunk).unwrap()).unwrap();
+                            f.write_all(&bincode::serialize(&chunk).unwrap()).unwrap();
+                        }
                     }
                     Ok(ChunkMessage::Players(_)) => {}
                     _ => break,

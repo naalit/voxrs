@@ -1,5 +1,5 @@
 use crate::common::*;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Chunk {
@@ -71,10 +71,10 @@ impl Chunk {
                         let start = c - l;
                         let new_len = i as u16 - start;
                         runs[j].0 = new_len;
-                        runs.insert(j+1, (1, new));
-                        let after = c - (i+1) as u16;
+                        runs.insert(j + 1, (1, new));
+                        let after = c - (i + 1) as u16;
                         if after != 0 {
-                            runs.insert(j+2, (after, b));
+                            runs.insert(j + 2, (after, b));
                         }
                         break;
                     }
@@ -105,7 +105,6 @@ impl Chunk {
         neighbors: (&Self, &Self),
         phase2: bool,
     ) -> Vec<Vec<Vec<Material>>> {
-
         // Special case
         if let Chunk::Runs(runs) = self {
             if runs.len() == 1 {

@@ -1,6 +1,5 @@
 use crate::client_aux::*;
 use crate::common::*;
-use crate::input::*;
 use crate::mesh::*;
 use crate::physics::*;
 use enum_iterator::IntoEnumIterator;
@@ -8,13 +7,9 @@ use glium::glutin::*;
 use glium::*;
 use glsl_include::Context as ShaderContext;
 use std::collections::HashMap;
+use std::ops::Deref;
 use std::sync::mpsc::*;
 use std::sync::{Arc, RwLock};
-use std::ops::Deref;
-
-use nphysics3d::object::{DefaultBodySet, DefaultColliderSet};
-use nphysics3d::force_generator::DefaultForceGeneratorSet;
-use nphysics3d::joint::DefaultJointConstraintSet;
 
 #[derive(Clone)]
 struct Camera {
@@ -53,19 +48,18 @@ impl Camera {
                 scancode,
                 state: glutin::ElementState::Pressed,
                 ..
-            }) => {
-                match scancode {
-                    x if x == self.config.keycodes.forward => self.moving.x = 1.0,
-                    x if x == self.config.keycodes.back => self.moving.x = -1.0,
-                    _ => (),
-                }
-            }
+            }) => match scancode {
+                x if x == self.config.keycodes.forward => self.moving.x = 1.0,
+                x if x == self.config.keycodes.back => self.moving.x = -1.0,
+                _ => (),
+            },
             glutin::DeviceEvent::Key(glutin::KeyboardInput {
                 scancode,
                 state: glutin::ElementState::Released,
                 ..
             }) => {
-                if scancode == self.config.keycodes.forward || scancode == self.config.keycodes.back {
+                if scancode == self.config.keycodes.forward || scancode == self.config.keycodes.back
+                {
                     self.moving.x = 0.0;
                 }
             }
@@ -252,8 +246,7 @@ impl Client {
         let player_handle = physics.bodies.insert(player_handle);
         let player_collider = np::object::ColliderDesc::new(player_shape)
             .margin(0.05)
-            .build(np::object::BodyPartHandle(player_handle,0))
-            ;
+            .build(np::object::BodyPartHandle(player_handle, 0));
         let player_c_handle = physics.colliders.insert(player_collider);
 
         Client {
@@ -293,8 +286,14 @@ impl Client {
 
         let proj_mat: [[f32; 4]; 4] = self.camera.mat(resolution);
 
-        let sun_speed = 0.05;
-        let sun_dir = Vec3::new((self.time * sun_speed).sin() as f32, (self.time * sun_speed).cos() as f32, 0.0).normalize();
+        // days / second
+        let sun_speed = 1.0 / (24.0 * 60.0); // a day is 24 minutes
+        let sun_dir = Vec3::new(
+            (self.time * sun_speed * std::f64::consts::PI * 2.0).sin() as f32,
+            (self.time * sun_speed * std::f64::consts::PI * 2.0).cos() as f32,
+            0.0,
+        )
+        .normalize();
 
         // Draw chunks onto the G-Buffer
         gbuff_fb.clear_color_and_depth((0.0, 0.0, 0.0, 0.0), 1.0);
@@ -395,7 +394,7 @@ impl Client {
                         if let Some(p) = self.trace(self.pos(), self.camera.dir, 16.0) {
                             self.set_block(p.cell, Material::Air);
                         }
-                    },
+                    }
                     // Right-click
                     glutin::DeviceEvent::Button {
                         button: 3,
@@ -403,16 +402,29 @@ impl Client {
                     } => {
                         if let Some(p) = self.trace(self.pos(), self.camera.dir, 16.0) {
                             let b = p.cell + p.normal.map(|x| x as i32);
-                            let iso1 = self.physics.bodies.rigid_body(self.player_handle).unwrap().position();
-                            let shape1 = self.physics.colliders.get(self.player_c_handle).unwrap().shape();
+                            let iso1 = self
+                                .physics
+                                .bodies
+                                .rigid_body(self.player_handle)
+                                .unwrap()
+                                .position();
+                            let shape1 = self
+                                .physics
+                                .colliders
+                                .get(self.player_c_handle)
+                                .unwrap()
+                                .shape();
                             let shape2 = nc::shape::Cuboid::new(Vec3::repeat(0.5));
-                            let iso2 = na::Isometry3::from_parts(na::Translation::from(b.map(|x| x as f32 + 0.5)), na::UnitQuaternion::new_normalize(na::Quaternion::identity()));
+                            let iso2 = na::Isometry3::from_parts(
+                                na::Translation::from(b.map(|x| x as f32 + 0.5)),
+                                na::UnitQuaternion::new_normalize(na::Quaternion::identity()),
+                            );
                             let d = nc::query::distance(iso1, shape1.deref(), &iso2, &shape2);
                             if d > 0.01 {
                                 self.set_block(b, Material::Grass);
                             }
                         }
-                    },
+                    }
                     _ => (),
                 }
                 camera.event(event, resolution);
@@ -422,7 +434,10 @@ impl Client {
         camera.update(
             delta,
             resolution,
-            self.physics.bodies.rigid_body_mut(self.player_handle).unwrap(),
+            self.physics
+                .bodies
+                .rigid_body_mut(self.player_handle)
+                .unwrap(),
         );
         self.camera = camera;
 
@@ -453,7 +468,6 @@ impl Client {
             let delta = timer.elapsed_ms() as f64 / 1000.0;
             self.time += delta;
 
-            // println!("{:.1} FPS", 1.0 / delta);
             timer.restart();
 
             let mut target = self.display().draw();
@@ -481,8 +495,6 @@ impl Client {
 
         let chunk_rc = self.chunks.get(&chunk).unwrap();
         chunk_rc.write().unwrap().set_block(in_chunk, new);
-
-        println!("Client setting {:?} to {:?}", loc, new);
 
         self.aux.0.send(Message::SetBlock(loc, new)).unwrap();
 
@@ -534,11 +546,9 @@ impl Client {
             let chunk_shape =
                 nc::shape::ShapeHandle::new(nc::shape::TriMesh::new(v_physics, i_physics, None));
 
-
             let chunk_collider = np::object::ColliderDesc::new(chunk_shape)
                 .translation(chunk.map(|x| x as f32) * CHUNK_SIZE)
-                .build(self.physics.ground)
-                ;
+                .build(self.physics.ground);
             let handle = self.physics.colliders.insert(chunk_collider);
             self.colliders.insert(chunk, handle);
         }
@@ -565,8 +575,7 @@ impl Client {
             if let Some(chunk_shape) = s {
                 let chunk_collider = np::object::ColliderDesc::new(chunk_shape)
                     .translation(i.map(|x| x as f32) * CHUNK_SIZE)
-                    .build(self.physics.ground)
-                    ;
+                    .build(self.physics.ground);
                 let handle = self.physics.colliders.insert(chunk_collider);
                 self.colliders.insert(i, handle);
             }
@@ -619,7 +628,10 @@ impl Client {
         let ray = nc::query::Ray::new(ro.into(), rd);
 
         let g = nc::pipeline::object::CollisionGroups::default();
-        let it = self.physics.geom.interferences_with_ray(&self.physics.colliders, &ray, &g);
+        let it = self
+            .physics
+            .geom
+            .interferences_with_ray(&self.physics.colliders, &ray, &g);
 
         let first = it.filter(|x| x.0 != self.player_c_handle).min_by(|a, b| {
             a.2.toi
