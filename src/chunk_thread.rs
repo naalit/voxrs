@@ -1,10 +1,10 @@
 use crate::common::*;
 use crate::terrain::*;
 use crate::world::*;
-use std::sync::mpsc::*;
-use std::sync::Arc;
 use std::collections::HashSet;
 use std::collections::VecDeque;
+use std::sync::mpsc::*;
+use std::sync::Arc;
 
 const CACHE_SIZE: usize = 16;
 
@@ -85,7 +85,9 @@ impl RegionCache {
 
             bincode::deserialize(&buf).unwrap()
         } else {
-            (0..REGION_SIZE * REGION_SIZE * REGION_SIZE).map(|_| None).collect()
+            (0..REGION_SIZE * REGION_SIZE * REGION_SIZE)
+                .map(|_| None)
+                .collect()
         };
 
         self._store(v, region)
@@ -187,7 +189,10 @@ impl ChunkThread {
                     for n in crate::mesh::neighbors(p) {
                         if to_decorate.contains(&n) {
                             let mut world = self.world.write().unwrap();
-                            if crate::mesh::neighbors(n).into_iter().all(|x| world.contains_chunk(x)) {
+                            if crate::mesh::neighbors(n)
+                                .into_iter()
+                                .all(|x| world.contains_chunk(x))
+                            {
                                 let m = self.gen.decorate(&mut *world, n);
                                 modified.extend(m.into_iter().filter(|x| !s.contains(x)));
                                 ret.push(n);
@@ -199,7 +204,10 @@ impl ChunkThread {
 
                 self.ch.0.send(ChunkMessage::LoadChunks(ret)).unwrap();
                 if !modified.is_empty() {
-                    self.ch.0.send(ChunkMessage::UpdateChunks(modified)).unwrap();
+                    self.ch
+                        .0
+                        .send(ChunkMessage::UpdateChunks(modified))
+                        .unwrap();
                 }
 
                 // println!("Loading took {} ms/chunk, {} ms total", timer.elapsed_ms() as f64 / l as f64, timer.elapsed_ms());

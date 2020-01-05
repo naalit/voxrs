@@ -162,14 +162,24 @@ impl Server {
                         for i in v {
                             for p in &self.players {
                                 if (world_to_chunk(p.pos) - i).map(|x| x as f32).norm()
-                                    <= self.config.draw_chunks as f32 {
-                                    batches.entry(p.id).or_insert((p.conn.clone(), Vec::new())).1.push(i);
+                                    <= self.config.draw_chunks as f32
+                                {
+                                    batches
+                                        .entry(p.id)
+                                        .or_insert((p.conn.clone(), Vec::new()))
+                                        .1
+                                        .push(i);
                                 }
                             }
                         }
                         let world = self.world.read().unwrap();
                         for (_, (conn, v)) in batches {
-                            conn.send(Message::Chunks(v.into_iter().filter_map(|x| world.chunks.get(&x).cloned().map(|y| (x, y))).collect())).unwrap();
+                            conn.send(Message::Chunks(
+                                v.into_iter()
+                                    .filter_map(|x| world.chunks.get(&x).cloned().map(|y| (x, y)))
+                                    .collect(),
+                            ))
+                            .unwrap();
                         }
                     }
                     _ => panic!("Chunk thread sent {:?}", m),

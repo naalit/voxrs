@@ -32,9 +32,7 @@ pub fn chunk_to_region(world: IVec3) -> IVec3 {
         - world.map(|x| if x < 0 { 1 } else { 0 })
 }
 pub fn in_region(chunk: IVec3) -> usize {
-    let v = chunk.map(|x| {
-        ((x % REGION_SIZE) + REGION_SIZE) as usize % REGION_SIZE as usize
-    });
+    let v = chunk.map(|x| ((x % REGION_SIZE) + REGION_SIZE) as usize % REGION_SIZE as usize);
     v.x + v.y * REGION_SIZE as usize + v.z * REGION_SIZE as usize * REGION_SIZE as usize
 }
 

@@ -90,10 +90,12 @@ impl Camera {
 
         if self.moving.y > 0.0 {
             if player.velocity().as_vector()[1].abs() < 0.01 {
-                player.apply_force(0,
-                &np::algebra::Force3::new(Vec3::y() * 500.0, Vec3::zeros()),
-                np::algebra::ForceType::Impulse,
-                true,);
+                player.apply_force(
+                    0,
+                    &np::algebra::Force3::new(Vec3::y() * 500.0, Vec3::zeros()),
+                    np::algebra::ForceType::Impulse,
+                    true,
+                );
             }
             self.moving.y = 0.0;
         }
