@@ -13,6 +13,7 @@ use std::sync::mpsc::*;
 pub use crate::config::*;
 
 pub const CHUNK_SIZE: f32 = 32.0;
+pub const REGION_SIZE: i32 = 4;
 
 // Shorthands to match GLSL
 pub type IVec3 = Vector3<i32>;
@@ -21,6 +22,20 @@ pub type Vec3 = Vector3<f32>;
 
 pub fn radians(degrees: f32) -> f32 {
     std::f32::consts::PI / 180.0 * degrees
+}
+
+pub fn region_to_chunk(chunk: IVec3) -> IVec3 {
+    chunk * REGION_SIZE
+}
+pub fn chunk_to_region(world: IVec3) -> IVec3 {
+    world.map(|x| x + if x < 0 { 1 } else { 0 }) / REGION_SIZE
+        - world.map(|x| if x < 0 { 1 } else { 0 })
+}
+pub fn in_region(chunk: IVec3) -> usize {
+    let v = chunk.map(|x| {
+        ((x % REGION_SIZE) + REGION_SIZE) as usize % REGION_SIZE as usize
+    });
+    v.x + v.y * REGION_SIZE as usize + v.z * REGION_SIZE as usize * REGION_SIZE as usize
 }
 
 pub fn chunk_to_world(chunk: IVec3) -> Vec3 {

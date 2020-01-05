@@ -11,7 +11,6 @@ struct Player {
     pos: Vec3,
     conn: Rc<Connection>,
     id: usize,
-    //to_send: Vec<IVec3>,
 }
 
 pub struct Server {

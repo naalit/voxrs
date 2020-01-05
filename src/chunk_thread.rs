@@ -3,8 +3,116 @@ use crate::terrain::*;
 use crate::world::*;
 use std::sync::mpsc::*;
 use std::sync::Arc;
-use stopwatch::Stopwatch;
 use std::collections::HashSet;
+use std::collections::VecDeque;
+
+const CACHE_SIZE: usize = 16;
+
+struct RegionCache {
+    indices: VecDeque<(IVec3, usize)>,
+    regions: Vec<Vec<Option<Vec<u8>>>>,
+    path: std::path::PathBuf,
+}
+
+impl RegionCache {
+    fn new() -> Self {
+        let mut chunks_path =
+            app_dirs2::app_root(app_dirs2::AppDataType::UserData, &crate::APP_INFO).unwrap();
+        chunks_path.push("regions");
+        if !chunks_path.exists() {
+            std::fs::create_dir_all(&chunks_path).unwrap();
+        }
+
+        RegionCache {
+            indices: VecDeque::new(),
+            regions: Vec::new(),
+            path: chunks_path,
+        }
+    }
+
+    fn _store(&mut self, v: IVec3, mut region: Vec<Option<Vec<u8>>>) -> usize {
+        if self.indices.len() < CACHE_SIZE {
+            assert_eq!(self.regions.len(), self.indices.len());
+            self.regions.push(region);
+            let i = self.regions.len() - 1;
+            self.indices.push_front((v, i));
+            i
+        } else {
+            let (nv, i) = self.indices.pop_back().unwrap();
+            self.indices.push_front((v, i));
+
+            std::mem::swap(&mut region, &mut self.regions[i]);
+
+            use std::fs::File;
+            use std::io::Write;
+
+            let mut path = self.path.clone();
+            path.push(format!("{},{},{}.region.zst", nv.x, nv.y, nv.z));
+            let f = File::create(path).unwrap();
+            let mut f = zstd::stream::write::Encoder::new(f, 3).unwrap();
+
+            f.write_all(&bincode::serialize(&region).unwrap()).unwrap();
+
+            f.finish().unwrap();
+
+            i
+        }
+    }
+
+    fn _load(&mut self, v: IVec3) -> usize {
+        for i in 0..self.indices.len() {
+            if self.indices[i].0 == v {
+                let t = self.indices[i];
+                self.indices.remove(i);
+                self.indices.push_front(t);
+                return t.1;
+            }
+        }
+
+        // It's not in the cache, so load it from disk
+        let mut path = self.path.clone();
+        path.push(format!("{},{},{}.region.zstd", v.x, v.y, v.z));
+
+        let region: Vec<Option<Vec<u8>>> = if path.exists() {
+            use std::fs::File;
+            use std::io::Read;
+
+            let f = File::open(path).unwrap();
+            let mut f = zstd::stream::read::Decoder::new(f).unwrap();
+
+            let mut buf = Vec::new();
+            f.read_to_end(&mut buf).unwrap();
+
+            bincode::deserialize(&buf).unwrap()
+        } else {
+            (0..REGION_SIZE * REGION_SIZE * REGION_SIZE).map(|_| None).collect()
+        };
+
+        self._store(v, region)
+    }
+
+    fn load(&mut self, chunk: IVec3) -> Option<Chunk> {
+        let v = chunk_to_region(chunk);
+        let idx = in_region(chunk);
+
+        let ri = self._load(v);
+        if let Some(x) = &self.regions[ri][idx] {
+            bincode::deserialize(x).ok()
+        } else {
+            None
+        }
+    }
+
+    fn store(&mut self, pos: IVec3, chunk: Chunk) {
+        let ser = bincode::serialize(&chunk).unwrap();
+
+        let v = chunk_to_region(pos);
+        let idx = in_region(pos);
+
+        let ri = self._load(v);
+        self.regions[ri][idx] = Some(ser);
+    }
+}
 
 pub struct ChunkThread {
     pub gen: Gen,
@@ -31,6 +139,8 @@ impl ChunkThread {
     pub fn run(self) {
         let save = self.config.save_chunks;
 
+        let mut cache = RegionCache::new();
+
         let mut to_decorate = HashSet::new();
 
         let mut chunks_path =
@@ -50,17 +160,11 @@ impl ChunkThread {
                     to_load
                         .drain(0..self.config.batch_size.min(to_load.len()))
                         .map(|p: IVec3| {
-                            let mut path = chunks_path.clone();
-                            path.push(format!("{},{},{}", p.x, p.y, p.z));
-
-                            let chunk = if save && path.exists() {
-                                use std::fs::File;
-                                use std::io::Read;
-
-                                let mut f = File::open(path).unwrap();
-                                let mut buf = Vec::new();
-                                f.read_to_end(&mut buf).unwrap();
-                                bincode::deserialize(&buf).unwrap()
+                            let chunk = if save {
+                                cache.load(p).unwrap_or_else(|| {
+                                    to_decorate.insert(p);
+                                    self.gen.gen(p)
+                                })
                             } else {
                                 to_decorate.insert(p);
                                 self.gen.gen(p)
@@ -154,15 +258,8 @@ impl ChunkThread {
                         to_load.append(&mut chunks);
                     }
                     Ok(ChunkMessage::UnloadChunk(p, chunk)) => {
-                        use std::fs::File;
-                        use std::io::Write;
-
                         if save {
-                            let mut path = chunks_path.clone();
-                            path.push(format!("{},{},{}", p.x, p.y, p.z));
-                            let mut f = File::create(path).unwrap();
-
-                            f.write_all(&bincode::serialize(&chunk).unwrap()).unwrap();
+                            cache.store(p, chunk);
                         }
                     }
                     Ok(ChunkMessage::Players(_)) => {}
