@@ -51,6 +51,10 @@ impl Camera {
             }) => match scancode {
                 x if x == self.config.keycodes.forward => self.moving.x = 1.0,
                 x if x == self.config.keycodes.back => self.moving.x = -1.0,
+                x if x == self.config.keycodes.up => {
+                    // Jump
+                    self.moving.y = 1.0;
+                }
                 _ => (),
             },
             glutin::DeviceEvent::Key(glutin::KeyboardInput {
@@ -83,6 +87,17 @@ impl Camera {
         //        self.pos = self.pos + self.dir * self.moving.x * delta as f32 * 8.0;
 
         let camera_up = Unit::new_normalize(Vec3::new(0.0, 1.0, 0.0));
+
+        if self.moving.y > 0.0 {
+            if player.velocity().as_vector()[1].abs() < 0.01 {
+                player.apply_force(0,
+                &np::algebra::Force3::new(Vec3::y() * 500.0, Vec3::zeros()),
+                np::algebra::ForceType::Impulse,
+                true,);
+            }
+            self.moving.y = 0.0;
+        }
+
         let q = na::Rotation3::from_axis_angle(&camera_up, self.rx / resolution.0 as f32 * -6.28)
             * Vec3::new(0.0, 0.0, 1.0);
         self.dir = q.normalize();
