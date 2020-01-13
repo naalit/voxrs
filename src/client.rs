@@ -11,9 +11,12 @@ use std::ops::Deref;
 use std::sync::mpsc::*;
 use std::sync::{Arc, RwLock};
 
+const NUM_CASCADES: usize = 4;
+const SHADOW_RES: u32 = 2048 * 2;
+const SHADOW_FAC: f32 = 4.0;
 
-            use glium_glyph::glyph_brush::{rusttype::Font, Section};
-    use glium_glyph::GlyphBrush;
+use glium_glyph::glyph_brush::{rusttype::Font, Section};
+use glium_glyph::GlyphBrush;
 #[derive(Clone)]
 struct Camera {
     pos: Point3<f32>,
@@ -121,12 +124,118 @@ impl Camera {
         let proj_mat = na::Matrix4::new_perspective(
             resolution.0 as f32 / resolution.1 as f32,
             radians(90.0),
-            0.1,
-            6000.0,
+            0.125,
+            1024.0,
         );
         let proj_mat =
             proj_mat * na::Matrix4::look_at_rh(&self.pos, &(self.pos + self.dir), &camera_up);
         proj_mat.into()
+    }
+
+    fn view_mat(&self) -> na::Matrix4<f32> {
+        let camera_up = Vec3::new(0.0, 1.0, 0.0);
+        let camera_right = Unit::new_normalize(self.dir.cross(&camera_up));
+        let camera_up = camera_right.cross(&self.dir);
+
+        na::Matrix4::look_at_rh(&self.pos, &(self.pos + self.dir), &camera_up)
+    }
+
+    pub fn cascades(
+        &self,
+        num_cascades: usize,
+        resolution: (u32, u32),
+        sun_dir: Vec3,
+    ) -> Vec<na::Matrix4<f32>> {
+        // See http://ogldev.atspace.co.uk/www/tutorial49/tutorial49.html
+
+        let aspect = resolution.0 as f32 / resolution.1 as f32;
+
+        let fovy = radians(90.0) * 0.5;
+        let tan_fy = fovy.tan();
+        let fovx = fovy * aspect;
+        let tan_fx = fovx.tan();
+
+        let m = self.view_mat();
+        // camera space -> world space
+        let mi = m.try_inverse().unwrap();
+
+        (0..num_cascades)
+            .map(|i| {
+                let near = 0.125 + 1023.875 * (i as f32 / num_cascades as f32).powf(SHADOW_FAC);
+                let far = 0.125 + 1023.875 * ((i + 1) as f32 / num_cascades as f32).powf(SHADOW_FAC);
+                let x_near = near * tan_fx;
+                let x_far = far * tan_fx;
+                let y_near = near * tan_fy;
+                let y_far = far * tan_fy;
+
+                // The frustum corners
+                let n_a = Vec3::new(x_near, y_near, near);
+                let n_b = Vec3::new(x_near, -y_near, near);
+                let n_c = Vec3::new(-x_near, y_near, near);
+                let n_d = Vec3::new(-x_near, -y_near, near);
+
+                let f_a = Vec3::new(x_far, y_far, far);
+                let f_b = Vec3::new(x_far, -y_far, far);
+                let f_c = Vec3::new(-x_far, y_far, far);
+                let f_d = Vec3::new(-x_far, -y_far, far);
+
+                // Transform them to world space
+                let v: Vec<_> = vec![n_a, n_b, n_c, n_d, f_a, f_b, f_c, f_d]
+                    .into_iter()
+                    .map(|x| (mi * na::Vector4::new(x.x, x.y, x.z, 1.0)).scale())
+                    .collect();
+
+                let min = v.iter().fold(
+                    Vec3::new(10_000_000.0, 10_000_000.0, 10_000_000.0),
+                    |x, a| x.zip_map(a, f32::min),
+                );
+                let max = v.iter().fold(
+                    -Vec3::new(10_000_000.0, 10_000_000.0, 10_000_000.0),
+                    |x, a| x.zip_map(a, f32::max),
+                );
+
+                let center = (min + max) * 0.5;
+                let center = Point3::from(center);
+                let extent = (min - max).norm() * 0.5;
+
+                // Average point
+                let centroid = v.iter().sum::<Vec3>() / 8.0;
+                let centroid = Point3::from(centroid);
+
+                let view_up = Vec3::y();
+                let view_right = Unit::new_normalize((-sun_dir).cross(&view_up));
+                let view_up = view_right.cross(&(-sun_dir));
+                // world space -> light space
+                let view =
+                    na::Matrix4::look_at_rh(&(center + sun_dir * extent), &center, &view_up);
+
+                // To light space
+                let v: Vec<_> = v
+                    .into_iter()
+                    .map(|x| (view * na::Vector4::new(x.x, x.y, x.z, 1.0)).scale())
+                    .collect();
+
+                // And get a bounding box for orthographic projection
+                let min = v.iter().fold(
+                    Vec3::new(10_000_000.0, 10_000_000.0, 10_000_000.0),
+                    |x, a| x.zip_map(a, f32::min),
+                );
+                let max = v.iter().fold(
+                    -Vec3::new(10_000_000.0, 10_000_000.0, 10_000_000.0),
+                    |x, a| x.zip_map(a, f32::max),
+                );
+
+                // TODO this is temporary fix for an annoying bug - it makes the light view square
+                let min = Vec3::new(min.min(), min.min(), min.min());
+                let max = Vec3::new(max.max(), max.max(), max.max());
+
+                // View-projection matrix from the light's point of view
+                let depth_projection =
+                    na::Matrix4::new_orthographic(min.x, max.x, min.y, max.y, 0.125, extent * 2.0);
+
+                depth_projection * view
+            })
+            .collect()
     }
 }
 
@@ -157,10 +266,13 @@ struct DrawStuff<'a> {
     params: DrawParameters<'a>,
     gbuff_program: Program,
     shade_program: Program,
+    shadow_program: Program,
     gbuff: glium::texture::Texture2d,
     gbuff_depth: glium::texture::depth_texture2d::DepthTexture2d,
+    shadow: glium::texture::DepthTexture2dArray,
     quad: VertexBuffer<SimpleVert>,
     mat_buf: glium::uniforms::UniformBuffer<[MatData]>,
+    light_buf: glium::uniforms::UniformBuffer<[[[f32; 4]; 4]]>,
 }
 
 impl<'a> DrawStuff<'a> {
@@ -168,6 +280,10 @@ impl<'a> DrawStuff<'a> {
         let vshader = shader("gbuff.vert".to_string(), &[]);
         let fshader = shader("gbuff.frag".to_string(), &[]);
         let gbuff_program = glium::Program::from_source(display, &vshader, &fshader, None).unwrap();
+
+        let fshader = shader("shadow_map.frag".to_string(), &[]);
+        let shadow_program =
+            glium::Program::from_source(display, &vshader, &fshader, None).unwrap();
 
         let vshader = shader("blank.vert".to_string(), &[]);
         let fshader = shader("shade.frag".to_string(), &["sky.glsl".to_string()]);
@@ -205,6 +321,25 @@ impl<'a> DrawStuff<'a> {
             resolution.1,
         )
         .unwrap();
+
+        let shadow_res = SHADOW_RES;
+
+        let shadow = glium::texture::DepthTexture2dArray::empty_with_format(
+            display,
+            glium::texture::DepthFormat::I24,
+            glium::texture::MipmapsOption::NoMipmap,
+            shadow_res,
+            shadow_res,
+            NUM_CASCADES as u32,
+        )
+        .unwrap();
+
+        let light_buf = glium::uniforms::UniformBuffer::empty_unsized_persistent(
+            display,
+            std::mem::size_of::<[[f32; 4]; 4]>() * NUM_CASCADES,
+        )
+        .unwrap();
+
         DrawStuff {
             params: glium::DrawParameters {
                 depth: glium::Depth {
@@ -222,10 +357,13 @@ impl<'a> DrawStuff<'a> {
             },
             gbuff_program,
             shade_program,
+            shadow_program,
             gbuff,
             gbuff_depth,
+            shadow,
             quad,
             mat_buf,
+            light_buf,
         }
     }
 }
@@ -274,7 +412,7 @@ impl<'font, 'p> Client<'font, 'p> {
         let dejavu: &[u8] = include_bytes!("../DejaVuSansMono-Bold.ttf");
         let fonts = vec![Font::from_bytes(dejavu).unwrap()];
 
-        let mut glyph_brush = GlyphBrush::new(&display, fonts);
+        let glyph_brush = GlyphBrush::new(&display, fonts);
 
         Client {
             camera: Camera::new(player.into(), config.clone()),
@@ -302,11 +440,15 @@ impl<'font, 'p> Client<'font, 'p> {
         &self.display
     }
 
+    #[allow(clippy::float_cmp)]
     fn draw(
         &mut self,
         target: &mut Frame,
         draw_stuff: &DrawStuff,
         gbuff_fb: &mut glium::framebuffer::SimpleFrameBuffer,
+        shadow_fb: &mut [glium::framebuffer::SimpleFrameBuffer],
+        sun_dir: Vec3,
+        cascades: &[na::Matrix4<f32>],
     ) {
         target.clear_color(0.0, 0.0, 0.0, 1.0);
         target.clear_depth(1.0);
@@ -315,14 +457,33 @@ impl<'font, 'p> Client<'font, 'p> {
 
         let proj_mat: [[f32; 4]; 4] = self.camera.mat(resolution);
 
-        // days / second
-        let sun_speed = 1.0 / (24.0 * 60.0); // a day is 24 minutes
-        let sun_dir = Vec3::new(
-            (self.time * sun_speed * std::f64::consts::PI * 2.0).sin() as f32,
-            (self.time * sun_speed * std::f64::consts::PI * 2.0).cos() as f32,
-            0.0,
-        )
-        .normalize();
+        let mut light_mats = Vec::new();
+
+        for i in 0..NUM_CASCADES {
+            let light_mat: [[f32; 4]; 4] = cascades[i].into();
+
+            // Draw the shadow map
+            shadow_fb[i].clear_color_and_depth((0.0, 0.0, 0.0, 0.0), 1.0);
+            for (_loc, mesh) in self.meshes.iter_mut() {
+                mesh.draw(
+                    &mut shadow_fb[i],
+                    &draw_stuff.shadow_program,
+                    &draw_stuff.params,
+                    uniform! {
+                        proj_mat: light_mat,
+                    },
+                )
+            }
+
+            light_mats.push(light_mat);
+        }
+
+        draw_stuff.light_buf.write(&light_mats);
+
+        let shadow_map = glium::uniforms::Sampler::new(&draw_stuff.shadow)
+            .magnify_filter(glium::uniforms::MagnifySamplerFilter::Linear)
+            .minify_filter(glium::uniforms::MinifySamplerFilter::Linear)
+            .depth_texture_comparison(Some(glium::uniforms::DepthTextureComparison::LessOrEqual));
 
         // Draw chunks onto the G-Buffer
         gbuff_fb.clear_color_and_depth((0.0, 0.0, 0.0, 0.0), 1.0);
@@ -333,8 +494,6 @@ impl<'font, 'p> Client<'font, 'p> {
                 &draw_stuff.params,
                 uniform! {
                     proj_mat: proj_mat,
-                    // mat_buf: &self.draw_stuff.mat_buf,
-                    // camera_pos: *self.camera.pos.as_array(),
                 },
             );
         }
@@ -349,8 +508,10 @@ impl<'font, 'p> Client<'font, 'p> {
                     mat_buf: &draw_stuff.mat_buf,
                     camera_pos: <[f32; 3]>::from(self.pos().into()),
                     proj_mat: proj_mat,
+                    light_buf: &draw_stuff.light_buf,
                     sun_dir: <[f32; 3]>::from(sun_dir.into()),
                     gbuff: &draw_stuff.gbuff,
+                    shadow_map: shadow_map,
                     resolution: resolution,
                 },
                 &Default::default(),
@@ -365,8 +526,6 @@ impl<'font, 'p> Client<'font, 'p> {
                 &draw_stuff.params,
                 uniform! {
                     proj_mat: proj_mat,
-                    // mat_buf: &self.draw_stuff.mat_buf,
-                    // camera_pos: *self.camera.pos.as_array(),
                 },
             );
         }
@@ -380,9 +539,11 @@ impl<'font, 'p> Client<'font, 'p> {
                 &uniform! {
                     mat_buf: &draw_stuff.mat_buf,
                     camera_pos: <[f32; 3]>::from(self.pos().into()),
-                    proj_mat: proj_mat,
+                    proj_mat: proj_mat,light_buf: &draw_stuff.light_buf,
+                    light_buf: &draw_stuff.light_buf,
                     sun_dir: <[f32; 3]>::from(sun_dir.into()),
                     gbuff: &draw_stuff.gbuff,
+                    shadow_map: shadow_map,
                     resolution: resolution,
                 },
                 &glium::draw_parameters::DrawParameters {
@@ -394,11 +555,17 @@ impl<'font, 'p> Client<'font, 'p> {
 
         let mut start = 40.0;
         for (m, n) in &self.inventory {
+            let old_start = start;
             self.glyph_brush.queue(Section {
                 text: &format!("{:?} x {}", m, n),
                 bounds: (resolution.0 as f32, resolution.1 as f32 / 2.0),
-                screen_position: (0.0, start),
-                scale: glium_glyph::glyph_brush::rusttype::Scale::uniform(if start == 40.0 { start += 10.0; 20.0 } else { 16.0 }),
+                screen_position: (0.0, old_start),
+                scale: glium_glyph::glyph_brush::rusttype::Scale::uniform(if start == 40.0 {
+                    start += 10.0;
+                    20.0
+                } else {
+                    16.0
+                }),
                 ..Section::default()
             });
             start += 20.0;
@@ -443,12 +610,12 @@ impl<'font, 'p> Client<'font, 'p> {
                             }
                         }
                     }
-                    glutin::DeviceEvent::MouseWheel {
-                        delta,
-                    } => {
+                    glutin::DeviceEvent::MouseWheel { delta } => {
                         let d = match delta {
                             glutin::MouseScrollDelta::LineDelta(_, v) => v,
-                            glutin::MouseScrollDelta::PixelDelta(p) => p.y as f32 / resolution.1 as f32,
+                            glutin::MouseScrollDelta::PixelDelta(p) => {
+                                p.y as f32 / resolution.1 as f32
+                            }
                         };
 
                         if d > 0.0 {
@@ -530,23 +697,60 @@ impl<'font, 'p> Client<'font, 'p> {
             &draw_stuff.gbuff_depth,
         )
         .unwrap();
+        let mut shadow_fb: Vec<_> = (0..NUM_CASCADES)
+            .map(|i| {
+                glium::framebuffer::SimpleFrameBuffer::depth_only(
+                    &self.display,
+                    draw_stuff.shadow.layer(i as u32).unwrap().main_level(),
+                )
+                .unwrap()
+            })
+            .collect();
 
         let mut timer = stopwatch::Stopwatch::start_new();
 
+        // days / second
+        let sun_speed = 1.0 / (24.0 * 60.0); // a day is 24 minutes
+        let sun_dir = Vec3::new(
+            (self.time * sun_speed * std::f64::consts::PI * 2.0).sin() as f32,
+            (self.time * sun_speed * std::f64::consts::PI * 2.0).cos() as f32,
+            0.0,
+        )
+        .normalize();
+
+        let mut cascades = self.camera.cascades(NUM_CASCADES, resolution, sun_dir);
+
         let mut open = true;
+        let mut i = 0;
         while open {
+            i += 1;
             let delta = timer.elapsed_ms() as f64 / 1000.0;
             self.time += delta;
+
+            if i % 120 == 0 {
+                println!("{} FPS", 1.0 / delta);
+            }
 
             timer.restart();
 
             let mut target = self.display().draw();
 
-            self.draw(&mut target, &draw_stuff, &mut gbuff_fb);
+            // days / second
+            let sun_speed = 1.0 / (24.0 * 60.0); // a day is 24 minutes
+            let sun_dir = Vec3::new(
+                (self.time * sun_speed * std::f64::consts::PI * 2.0).sin() as f32,
+                (self.time * sun_speed * std::f64::consts::PI * 2.0).cos() as f32,
+                0.0,
+            )
+            .normalize();
+
+            self.draw(&mut target, &draw_stuff, &mut gbuff_fb, &mut shadow_fb, sun_dir, &cascades);
 
             // Most computation should go after this point, while the GPU is rendering
 
             open = self.update(&mut evloop, delta);
+
+            cascades = self.camera.cascades(NUM_CASCADES, resolution, sun_dir);
 
             target.finish().unwrap();
         }

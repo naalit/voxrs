@@ -20,6 +20,16 @@ pub type IVec3 = Vector3<i32>;
 pub type UVec3 = Vector3<usize>;
 pub type Vec3 = Vector3<f32>;
 
+pub trait Scale3 {
+    fn scale(self) -> Vec3;
+}
+
+impl Scale3 for na::Vector4<f32> {
+    fn scale(self) -> Vec3 {
+        self.xyz() / self.w
+    }
+}
+
 pub fn radians(degrees: f32) -> f32 {
     std::f32::consts::PI / 180.0 * degrees
 }

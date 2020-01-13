@@ -225,6 +225,11 @@ impl ChunkThread {
                         Ok(ChunkMessage::Players(players)) => {
                             sort = players;
                         }
+                        Ok(ChunkMessage::Done) => {
+                            self.ch.0.send(ChunkMessage::Done).unwrap();
+                            connected = false;
+                            break;
+                        }
                         Err(TryRecvError::Disconnected) => {
                             connected = false;
                             break;

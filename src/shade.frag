@@ -2,12 +2,19 @@
 
 // The shading pass after the G-Buffer is filled
 
+const uint NUM_CASCADES = 4;
+const float SHADOW_FAC = 4.0;
+
 out vec4 frag_color;
 in vec2 uv;
 
 uniform vec3 camera_pos;
 uniform mat4 proj_mat;
+uniform light_buf {
+  mat4 light_mats[NUM_CASCADES];
+};
 uniform sampler2D gbuff;
+uniform sampler2DArrayShadow shadow_map;
 uniform vec3 sun_dir;
 uniform uvec2 resolution;
 
@@ -23,6 +30,31 @@ struct MatData {
 layout(std140) buffer mat_buf {
     MatData materials[];
 };
+
+// Basic shadow mapping
+float shadow(vec3 pos) {
+    float far = 1024;
+    float z = length(pos - camera_pos);
+    //uint i = 1; //uint(float(NUM_CASCADES) * z/far);
+    uint i = uint(float(NUM_CASCADES) * pow(z/far, 1.0/SHADOW_FAC));
+
+    float bias = 0.0001;
+    vec4 map_coord = light_mats[i] * vec4(pos, 1.0);
+    // if (max(abs(map_coord.x / map_coord.w), abs(map_coord.y / map_coord.w)) > 1.0) {
+    //   return 0.0;
+    // }
+    // if (map_coord.z / map_coord.w < 0.0) {
+    //     return 0.0;
+    // }
+    // return 1.0; // - 2.0 * map_coord.z / map_coord.w;
+
+    float depth = (map_coord.z-bias) / map_coord.w * 0.5 + 0.5;
+    vec2 coords = map_coord.xy / map_coord.w  * 0.5 + 0.5;
+    //coords /= map_coord.w;
+    //depth /= map_coord.w;
+
+    return texture(shadow_map, vec4(coords, float(i), depth));
+}
 
 // From IQ: https://iquilezles.org/www/articles/fog/fog.htm
 vec3 applyFog( in vec3 rgb, // original color of the pixel
@@ -95,9 +127,13 @@ vec3 bsdf(in vec3 V, in vec3 L, in vec3 N, in MatData mat) {
 vec3 shade(vec3 rd, vec3 normal, MatData mat, vec3 pos) {
     vec3 sun_color = pow(vec3(0.7031,0.4687,0.1055), vec3(1.0 / 4.2));
     vec3 sky_color = pow(vec3(0.3984,0.5117,0.7305), vec3(1.0 / 4.2));
-    vec3 col = sun_color * smoothstep(0.0, 0.1, sun_dir.y) * saturate(dot(normal, sun_dir));//saturate(bsdf(-rd, sun_dir, normal, mat));
+
+    float sha = shadow(pos);
+
+    vec3 col = sha * sun_color * smoothstep(0.0, 0.1, sun_dir.y) * saturate(dot(normal, sun_dir));//saturate(bsdf(-rd, sun_dir, normal, mat));
     col += sky_color * 0.2 * saturate(0.5 + 0.5*normal.y + 0.2*normal.x);//mat.color * IPI * length(abs(normal) * vec3(0.7, 1.0, 0.85));//bsdf(-rd, normalize(normal * vec3(1, 0, 1)), normal, mat);
-    col += pow(sun_color, vec3(1.2)) * 0.2 * smoothstep(0.0, 0.1, sun_dir.y) * saturate(dot(normal, normalize(sun_dir * vec3(-1,0,-1))));//saturate(bsdf(-rd, -sun_dir, normal, mat));
+    col += sha * pow(sun_color, vec3(1.2)) * 0.2 * smoothstep(0.0, 0.1, sun_dir.y) * saturate(dot(normal, normalize(sun_dir * vec3(-1,0,-1))));//saturate(bsdf(-rd, -sun_dir, normal, mat));
+    //col = sha * vec3(1);
     col *= IPI * mat.color;
     if (mat.roughness < 0.2) {
         vec3 r = reflect(rd,normal);
@@ -129,6 +165,9 @@ void main() {
         col = shade(rd, normal, mat, frag_pos);
         a = 1.0 - mat.trans;
     }
+
+    //col = vec3(1) * texture(shadow_map, vec4(uv, 0.0, 0.0));
+
     // Vignette
     // col *= smoothstep(-0.5,0.8,1.0-length(pow(abs(uv),vec2(2.0))));
     // No gamma correction, we're using a sRGB framebuffer
