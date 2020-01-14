@@ -32,26 +32,18 @@ layout(std140) buffer mat_buf {
 };
 
 // Basic shadow mapping
-float shadow(vec3 pos) {
+float shadow(vec3 normal, vec3 pos) {
     float far = 1024;
     float z = length(pos - camera_pos);
-    //uint i = 1; //uint(float(NUM_CASCADES) * z/far);
     uint i = uint(float(NUM_CASCADES) * pow(z/far, 1.0/SHADOW_FAC));
 
-    float bias = 0.0001;
+    // Slope-scaled depth bias
+    float bias = 0.005 * tan(acos(dot(normal, sun_dir))); //0.0001
+
     vec4 map_coord = light_mats[i] * vec4(pos, 1.0);
-    // if (max(abs(map_coord.x / map_coord.w), abs(map_coord.y / map_coord.w)) > 1.0) {
-    //   return 0.0;
-    // }
-    // if (map_coord.z / map_coord.w < 0.0) {
-    //     return 0.0;
-    // }
-    // return 1.0; // - 2.0 * map_coord.z / map_coord.w;
 
     float depth = (map_coord.z-bias) / map_coord.w * 0.5 + 0.5;
     vec2 coords = map_coord.xy / map_coord.w  * 0.5 + 0.5;
-    //coords /= map_coord.w;
-    //depth /= map_coord.w;
 
     return texture(shadow_map, vec4(coords, float(i), depth));
 }
@@ -128,12 +120,12 @@ vec3 shade(vec3 rd, vec3 normal, MatData mat, vec3 pos) {
     vec3 sun_color = pow(vec3(0.7031,0.4687,0.1055), vec3(1.0 / 4.2));
     vec3 sky_color = pow(vec3(0.3984,0.5117,0.7305), vec3(1.0 / 4.2));
 
-    float sha = shadow(pos);
+    float sha = shadow(normal, pos);
 
     vec3 col = sha * sun_color * smoothstep(0.0, 0.1, sun_dir.y) * saturate(dot(normal, sun_dir));//saturate(bsdf(-rd, sun_dir, normal, mat));
     col += sky_color * 0.2 * saturate(0.5 + 0.5*normal.y + 0.2*normal.x);//mat.color * IPI * length(abs(normal) * vec3(0.7, 1.0, 0.85));//bsdf(-rd, normalize(normal * vec3(1, 0, 1)), normal, mat);
     col += sha * pow(sun_color, vec3(1.2)) * 0.2 * smoothstep(0.0, 0.1, sun_dir.y) * saturate(dot(normal, normalize(sun_dir * vec3(-1,0,-1))));//saturate(bsdf(-rd, -sun_dir, normal, mat));
-    //col = sha * vec3(1);
+
     col *= IPI * mat.color;
     if (mat.roughness < 0.2) {
         vec3 r = reflect(rd,normal);

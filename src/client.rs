@@ -194,20 +194,27 @@ impl Camera {
                     |x, a| x.zip_map(a, f32::max),
                 );
 
+                // Center of the frustum's bounding box
                 let center = (min + max) * 0.5;
-                let center = Point3::from(center);
-                let extent = (min - max).norm() * 0.5;
+                let center_p = Point3::from(center);
 
-                // Average point
-                let centroid = v.iter().sum::<Vec3>() / 8.0;
-                let centroid = Point3::from(centroid);
+                // Intersect the bounding box of the frustum to find a sun position ON it
+                let t1 = (min - center).zip_map(&sun_dir, |x, y| x / y);
+                let t2 = (max - center).zip_map(&sun_dir, |x, y| x / y);
+                let tmax = t1.zip_map(&t2, f32::max);
+                let tmin = t1.zip_map(&t2, f32::min);
+                // We want to go IN the sun direction from the center, so tmin would be below zero
+                let t = tmax.min();
+                // To go all the way through - for a far plane
+                let t_total = t - tmin.max();
+                let sun_pos = center_p + sun_dir * t;
 
                 let view_up = Vec3::y();
                 let view_right = Unit::new_normalize((-sun_dir).cross(&view_up));
                 let view_up = view_right.cross(&(-sun_dir));
                 // world space -> light space
                 let view =
-                    na::Matrix4::look_at_rh(&(center + sun_dir * extent), &center, &view_up);
+                    na::Matrix4::look_at_rh(&sun_pos, &center_p, &view_up);
 
                 // To light space
                 let v: Vec<_> = v
@@ -231,7 +238,7 @@ impl Camera {
 
                 // View-projection matrix from the light's point of view
                 let depth_projection =
-                    na::Matrix4::new_orthographic(min.x, max.x, min.y, max.y, 0.125, extent * 2.0);
+                    na::Matrix4::new_orthographic(min.x, max.x, min.y, max.y, 0.0, t_total);
 
                 depth_projection * view
             })
